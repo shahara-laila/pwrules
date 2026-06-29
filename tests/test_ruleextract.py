@@ -167,7 +167,9 @@ class TestApplyRule:
         assert apply_rule("word", "^3 ^2 ^1") == "123word"
 
     def test_dragon(self):
-        assert apply_rule("dragon", "c so0 $1 $2 $3") == "Dr0gon123"
+        # dragon --c--> Dragon --so0--> Drag0n --$1$2$3--> Drag0n123
+        # (the single 'o' is substituted; the prior assertion 'Dr0gon123' was wrong).
+        assert apply_rule("dragon", "c so0 $1 $2 $3") == "Drag0n123"
 
 
 # ===========================================================================

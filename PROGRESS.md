@@ -121,4 +121,56 @@ Update after every phase: status, exact output files, and Kaggle Dataset slug.
 
 ---
 
+## Hardening pass — audit fixes, path discovery, research figures (2026-06-30)
+
+Full-codebase audit + fixes; all tests green (`255 passed, 4 skipped` — skips are
+GPU/hashcat-gated). Local test env: Python 3.12 venv (project default 3.10+).
+
+### New: centralised path discovery — `pwrules/paths.py`
+- Slug-agnostic: every CLI finds its inputs by filename under `/kaggle/working`
+  then `/kaggle/input`, so notebooks never hard-code a dataset slug.
+- Single override point: `PWRULES_<NAME>` env vars (e.g. `PWRULES_ROCKYOU`).
+- All `__main__` entrypoints now auto-resolve inputs when flags are omitted.
+- `tests/test_paths.py` (10 tests).
+
+### New: research figures — `pwrules/eval/figures.py`
+- `pipeline_diagram` (Fig. 1), `rule_op_distribution`, `memorisation_breakdown`,
+  `top_rules`, `targeted_vs_untargeted`, `per_user_rule_counts`, `hit_at_k_bars`,
+  `complementarity`, `ablation_bars`, and `generate_all_figures` (best-effort).
+- Wired into Phase 10 (`export_paper_artifacts` → `figures/`) and Phase 6 emits a
+  `rule_op_distribution.png`. `tests/test_figures.py` (9 tests).
+
+### Correctness fixes
+- **eval (critical):** Phase 8 crashed on `load_protocol(config_path)` — fixed.
+  `hit_at_k` is now true set-intersection (frozen definition); targeted aggregate
+  rows are persisted to `results.csv`; `LLM-untargeted` default = unfiltered rules,
+  `LLM-filtered` = filtered (so the filtering ablation is real); method name
+  standardised to `LLM-targeted`.
+- **ablations:** removed the degenerate McNemar surrogate and single-seed
+  "significance" (would fabricate p≈1.0 / false significance); significance now
+  gated on ≥2 seeds.
+- **baselines:** RuleForge Python fallback now infers a real per-cluster rule
+  (was emitting a single `c`, which weakened the baseline).
+- **clean (critical):** `verify_test_checksum` no longer drops whitespace-only
+  passwords (false mismatch on the frozen test split); manifest records the
+  *effective* `by_user` mode; UTF-8 decode uses `errors="replace"`.
+- **ruleextract:** case ops (`l/u/c/C/t/T`) are ASCII-only to match hashcat on
+  non-ASCII base words.
+- **conditioning:** empty real-mode `user_id` no longer collapses many users into
+  one; `birth_year` normalised to int.
+- **filter:** effectiveness ranking counts DISTINCT recovered val passwords; honours
+  `top_k` even when hashcat is absent; fixed a wordlist file-handle leak.
+- **reporting:** `make_*` create the output dir; LaTeX escapes all cells/headers;
+  `Δ` → `Delta` (pdflatex-safe).
+- **train/generate (research quality):** response-only SFT loss masking
+  (model-agnostic marker derivation); `enable_thinking=False` so Qwen3 emits rules
+  not reasoning; generated rules sanitised to one line; explicit stop token;
+  early-exit when the unique-rule space saturates; `--targeted` falls back to the
+  Phase-3 val split; memorisation check uses diverse probes + sanitised output.
+
+### Tuning — `configs/train.yaml` (not frozen)
+- LoRA `r/alpha` 16/32 → 32/64; `max_seq_length` 1024 → 512; batch 16×4 → 8×8
+  (same effective 64, safer VRAM); `response_only_loss: true`; generation
+  `top_p` 0.95 → 0.9, `max_new_tokens` 64 → 48, added `early_stop_patience`.
+
 ## All phases complete ✅

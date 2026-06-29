@@ -107,8 +107,23 @@ def _generate_single(
     """Run one inference pass and return the generated text."""
     import torch  # type: ignore
 
+    # Build the stop-token set: the tokenizer EOS plus the chat turn terminator
+    # (e.g. <|im_end|> for Qwen/ChatML), which is often NOT the same id. Without
+    # this, generation runs to max_new_tokens and trails into the next turn.
+    eos_ids = []
+    if tokenizer.eos_token_id is not None:
+        eos_ids.append(tokenizer.eos_token_id)
+    for stop_tok in ("<|im_end|>", "<|eot_id|>", "<|end|>"):
+        try:
+            tid = tokenizer.convert_tokens_to_ids(stop_tok)
+        except Exception:
+            tid = None
+        if isinstance(tid, int) and tid >= 0 and tid != tokenizer.unk_token_id:
+            eos_ids.append(tid)
+    eos_ids = list(dict.fromkeys(eos_ids)) or None
+
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True,
-                       max_length=512).to(model.device)
+                       max_length=int(gen_cfg.get("max_seq_length", 1024))).to(model.device)
     with torch.no_grad():
         output_ids = model.generate(
             **inputs,
@@ -117,6 +132,7 @@ def _generate_single(
             top_p=float(gen_cfg.get("top_p", 0.95)),
             do_sample=bool(gen_cfg.get("do_sample", True)),
             pad_token_id=tokenizer.eos_token_id,
+            eos_token_id=eos_ids,
         )
     generated = tokenizer.decode(
         output_ids[0][inputs["input_ids"].shape[1]:],
@@ -126,9 +142,33 @@ def _generate_single(
 
 
 def _build_prompt(tokenizer, messages: List[Dict[str, str]]) -> str:
-    return tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    )
+    # enable_thinking=False keeps reasoning models (Qwen3) from emitting a
+    # <think> block that would consume the budget instead of producing a rule.
+    try:
+        return tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+        )
+    except TypeError:
+        return tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+
+
+# A rule occupies exactly one line of a .rule file (space-separated function
+# tokens are fine, e.g. "c sa@ $1"). We keep the first real line and drop empty
+# or reasoning/markup lines so multi-line model output can't corrupt the file.
+def _sanitize_rule(text: str) -> str:
+    """Reduce raw model output to a single clean Hashcat rule line (or '')."""
+    if not text:
+        return ""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith(("<", "#", "`")):  # stray reasoning / markdown
+            continue
+        return line
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +197,10 @@ def generate_untargeted(
     idx = 0
     attempts = 0
     max_attempts = budget * 5  # avoid infinite loops on degenerate outputs
+    # Early-exit: if the reachable unique-rule space saturates, stop instead of
+    # grinding to max_attempts (the probe set is finite).
+    stale = 0
+    patience = int(gen_cfg.get("early_stop_patience", 2000))
 
     while len(unique_rules) < budget and attempts < max_attempts:
         word = words[idx % len(words)]
@@ -165,11 +209,20 @@ def generate_untargeted(
 
         messages = [{"role": "user", "content": _INSTRUCTION_TEMPLATE.format(base=word)}]
         prompt = _build_prompt(tokenizer, messages)
-        rule = _generate_single(model, tokenizer, prompt, gen_cfg)
+        rule = _sanitize_rule(_generate_single(model, tokenizer, prompt, gen_cfg))
 
         if rule and rule not in seen:
             seen.add(rule)
             unique_rules.append(rule)
+            stale = 0
+        else:
+            stale += 1
+            if stale >= patience:
+                logger.info(
+                    "Untargeted generation saturated after %d stale attempts "
+                    "(%d unique rules); stopping early.", stale, len(unique_rules),
+                )
+                break
 
         if attempts % 100 == 0:
             logger.info(
@@ -223,6 +276,8 @@ def generate_targeted(
         idx = 0
         attempts = 0
         max_attempts = budget_per_user * 5
+        stale = 0
+        patience = int(gen_cfg.get("early_stop_patience", 2000))
 
         while len(unique_rules) < budget_per_user and attempts < max_attempts:
             word = words[idx % len(words)]
@@ -233,11 +288,16 @@ def generate_targeted(
                 attrs=attr_str, base=word,
             )}]
             prompt = _build_prompt(tokenizer, messages)
-            rule = _generate_single(model, tokenizer, prompt, gen_cfg)
+            rule = _sanitize_rule(_generate_single(model, tokenizer, prompt, gen_cfg))
 
             if rule and rule not in seen:
                 seen.add(rule)
                 unique_rules.append(rule)
+                stale = 0
+            else:
+                stale += 1
+                if stale >= patience:
+                    break
 
         results[uid] = unique_rules
         logger.info("User %s: %d rules generated.", uid, len(unique_rules))
@@ -410,6 +470,17 @@ def generate_rules(
     # -----------------------------------------------------------------------
     stats = compute_diversity_stats(untargeted_rules, targeted_rules)
     save_diversity_stats(stats, out_dir)
+
+    # Rule-operation distribution figure (what operations the LLM learned).
+    try:
+        from pwrules.eval.figures import rule_op_distribution
+        rule_op_distribution(
+            rules_dir / "llm_untargeted.rule",
+            out_dir / "rule_op_distribution.png",
+            title="Generated rule operation distribution",
+        )
+    except Exception as exc:  # pragma: no cover - figure is non-critical
+        logger.warning("rule_op_distribution figure skipped: %s", exc)
 
     logger.info("Phase 6 complete. Outputs in %s", out_dir)
     return {

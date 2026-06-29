@@ -209,6 +209,11 @@ def generated_dir(required: bool = True) -> Optional[Path]:
     return dir_with("llm_untargeted.rule", env="PWRULES_GENERATED", required=required)
 
 
+def targeted_rules_dir(required: bool = False) -> Optional[Path]:
+    """Phase 6 per-user targeted rule dir (the ``llm_targeted`` folder)."""
+    return find_dir("llm_targeted", env="PWRULES_TARGETED_RULES", required=required)
+
+
 def filtered_dir(required: bool = True) -> Optional[Path]:
     """Phase 7 output dir (holds filter_funnel.csv)."""
     return dir_with("filter_funnel.csv", env="PWRULES_FILTERED", required=required)

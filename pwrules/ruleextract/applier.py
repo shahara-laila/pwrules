@@ -37,12 +37,37 @@ def _conv_pos(c: str) -> int:
     return 0
 
 
+# ASCII-only case helpers. Hashcat's case rules (l/u/c/C/t/T) act on the ASCII
+# A-Z/a-z range only; Python's str.lower()/upper()/swapcase() also transform
+# non-ASCII letters (é→É), which diverges from real hashcat and breaks parity on
+# accented base words. These keep the Python applier byte-compatible with hashcat.
+
+def _ascii_lower(s: str) -> str:
+    return "".join(chr(ord(c) + 32) if "A" <= c <= "Z" else c for c in s)
+
+
+def _ascii_upper(s: str) -> str:
+    return "".join(chr(ord(c) - 32) if "a" <= c <= "z" else c for c in s)
+
+
+def _ascii_swap(s: str) -> str:
+    out = []
+    for c in s:
+        if "A" <= c <= "Z":
+            out.append(chr(ord(c) + 32))
+        elif "a" <= c <= "z":
+            out.append(chr(ord(c) - 32))
+        else:
+            out.append(c)
+    return "".join(out)
+
+
 # ---------------------------------------------------------------------------
 # Tokeniser
 # ---------------------------------------------------------------------------
 
 # Functions that consume 0 additional chars (function only).
-_ZERO_PARAM = set(":lucCtrdpf{}[]kKq")
+_ZERO_PARAM = set(":lucCtrdf{}[]kKq")
 
 # Functions that consume 1 additional char (function + 1 param char).
 _ONE_PARAM = set("$^TDzZyY@+-LRp")
@@ -90,24 +115,24 @@ def apply_function(word: str, fn: str, params: str) -> str:  # noqa: C901
     if fn == ":":
         return word
 
-    # --- Case functions ---
+    # --- Case functions (ASCII-only, matching hashcat) ---
     if fn == "l":
-        return word.lower()
+        return _ascii_lower(word)
     if fn == "u":
-        return word.upper()
+        return _ascii_upper(word)
     if fn == "c":
-        return (word[0].upper() + word[1:].lower()) if word else word
+        return (_ascii_upper(word[0]) + _ascii_lower(word[1:])) if word else word
     if fn == "C":
-        return (word[0].lower() + word[1:].upper()) if word else word
+        return (_ascii_lower(word[0]) + _ascii_upper(word[1:])) if word else word
     if fn == "t":
-        return word.swapcase()
+        return _ascii_swap(word)
     if fn == "T":
         if not params:
             return word
         pos = _conv_pos(params[0])
         chars = list(word)
         if 0 <= pos < len(chars):
-            chars[pos] = chars[pos].swapcase()
+            chars[pos] = _ascii_swap(chars[pos])
         return "".join(chars)
 
     # --- Structural functions ---

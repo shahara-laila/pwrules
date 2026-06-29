@@ -6,13 +6,18 @@
 # Base model — MODEL-AGNOSTIC. Default is a small Qwen3 instruct variant; override
 # freely. Code must read this, never hard-code a model id.
 model_name: Qwen/Qwen3-0.6B
-max_seq_length: 1024
+# Rule instructions are short; 512 is ample and ~halves memory/time vs 1024,
+# letting us use a larger real batch. Raise only if targeted attribute strings
+# get long.
+max_seq_length: 512
 
 # 4-bit QLoRA adapter config.
 qlora:
   load_in_4bit: true
-  r: 16
-  lora_alpha: 32
+  # Rank/alpha raised (16/32 -> 32/64): the output space (Hashcat rules) is
+  # narrow and structured, so more adapter capacity helps and is cheap at 0.6B.
+  r: 32
+  lora_alpha: 64
   lora_dropout: 0.05
   bias: none
   # Attention + MLP projections.
@@ -29,8 +34,10 @@ qlora:
 training:
   epochs: 3
   learning_rate: 2.0e-4
-  per_device_train_batch_size: 16
-  gradient_accumulation_steps: 4
+  # Effective batch = 8 x 8 = 64 (was 16 x 4). Smaller per-device batch is safer
+  # against OOM on a 16 GB T4 while keeping the same effective batch size.
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 8
   warmup_ratio: 0.03
   weight_decay: 0.01
   lr_scheduler_type: cosine
@@ -41,16 +48,21 @@ training:
     enabled: true
     patience: 3
     metric: eval_loss
+  # Compute the SFT loss on the assistant's rule only (not the prompt). Biggest
+  # single quality lever for instruction tuning; see pwrules/train response-only.
+  response_only_loss: true
   # Resume from a checkpoint dir to survive the Kaggle 12h cap.
   resume_from_checkpoint: null
 
 # Generation / inference params (used in Phase 6).
 generation:
-  budget: 10000        # number of rules to generate
-  temperature: 0.8
-  top_p: 0.95
-  max_new_tokens: 64
+  budget: 10000          # max unique rules to generate (cap, not a guarantee)
+  temperature: 0.8       # keep some diversity for ruleset coverage
+  top_p: 0.9
+  max_new_tokens: 48     # one rule is short once thinking is disabled
   do_sample: true
+  early_stop_patience: 2000  # stop a regime after N consecutive non-novel samples
+  max_seq_length: 512        # prompt truncation length (mirror training)
 
 # Determinism — keep in sync with protocol.yaml seed.
 seed: 1337

@@ -30,14 +30,18 @@ def _run_cmd(args):
     test = Path(args.test) if args.test else paths.test_txt()
     out_dir = Path(args.out) if args.out else paths.out("results")
 
-    # LLM rule sets: prefer explicit, else the filtered untargeted rules.
+    # LLM rule sets: the UNTARGETED method uses the raw generated rules; the
+    # FILTERED method uses the Phase-7 filtered file. Keeping them distinct is
+    # what makes the "filtering" ablation meaningful.
     llm_untargeted = Path(args.llm_untargeted) if args.llm_untargeted else \
+        paths.generated_untargeted(required=False)
+    llm_filtered = Path(args.llm_filtered) if args.llm_filtered else \
         paths.filtered_untargeted(required=False)
-    llm_filtered = Path(args.llm_filtered) if args.llm_filtered else llm_untargeted
     target_users = Path(args.target_users) if args.target_users else \
         paths.target_users(required=False)
+    # Per-user targeted rule files live in the generated "llm_targeted" dir.
     targeted_rules_dir = Path(args.targeted_rules_dir) if args.targeted_rules_dir else \
-        paths.filtered_dir(required=False)
+        paths.targeted_rules_dir(required=False)
 
     logging.info("wordlist: %s", wordlist)
     logging.info("test    : %s", test)

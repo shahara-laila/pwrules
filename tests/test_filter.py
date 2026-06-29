@@ -88,8 +88,11 @@ class TestIsNoop:
 class TestSyntaxCheck:
     def test_valid_rules_pass(self):
         rules = ["c", "l", "$1", "sa@", "c sa@ $1"]
+        # Use DIVERSE probe words: with a single all-lowercase probe like
+        # "password" the lowercase rule "l" is a (correct) no-op and would be
+        # dropped. A rule is a no-op only if it leaves ALL probes unchanged.
         valid, n_invalid, n_noop = syntax_check(
-            rules, probe_words=["password"], hashcat_sample=0
+            rules, probe_words=["Password", "hello", "ABC"], hashcat_sample=0
         )
         assert len(valid) == len(rules)
         assert n_invalid == 0

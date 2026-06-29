@@ -76,11 +76,6 @@ def main(argv: list[str] | None = None) -> None:
         datefmt="%H:%M:%S",
     )
 
-    # If a --resume path is given, inject it into the config.
-    config_overrides = {}
-    if args.resume:
-        config_overrides["resume_from_checkpoint"] = args.resume
-
     from pwrules.train import train
     from pwrules import paths
 
@@ -93,6 +88,8 @@ def main(argv: list[str] | None = None) -> None:
     out_dir = args.out or str(paths.out("adapter"))
     logging.info("data  : %s", data_dir)
     logging.info("output: %s", out_dir)
+    if args.resume:
+        logging.info("resume: %s", args.resume)
 
     try:
         adapter_dir = train(
@@ -100,6 +97,7 @@ def main(argv: list[str] | None = None) -> None:
             output_dir=out_dir,
             config_path=args.config,
             use_targeted=args.targeted,
+            resume_from_checkpoint=args.resume,
         )
         print(f"\nPhase 5 done. Adapter saved to: {adapter_dir}")
     except RuntimeError as exc:

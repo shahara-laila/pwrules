@@ -207,19 +207,51 @@ def _run_python_clustering(
         n_clusters = min(n_rules, len(words) // 10)
         labels = AgglomerativeClustering(n_clusters=n_clusters).fit_predict(X)
 
-    # Pick one representative rule per cluster: capitalise the cluster centroid.
-    cluster_ids = set(labels) - {-1}
+    # Derive a REAL representative mangling rule per cluster (RuleForge-style):
+    # for each cluster, infer the validated (base → password) rule of its members
+    # and keep the most common one. Emitting a single trivial "c" for every
+    # cluster would artificially weaken the baseline (forbidden).
+    from collections import Counter
+
+    from pwrules.ruleextract.applier import apply_rule
+    from pwrules.ruleextract.extractor import (
+        _reverse_leet, _strip_outer_nonalpha, infer_rule,
+    )
+
+    def _derive_rule(pw: str) -> Optional[str]:
+        _, core, _ = _strip_outer_nonalpha(pw)
+        if not core:
+            return None
+        base = _reverse_leet(core).lower()
+        if not base:
+            return None
+        rule = infer_rule(base, pw)
+        if rule is None:
+            return None
+        rule = rule.strip() or ":"
+        # Keep only rules that provably regenerate the password.
+        return rule if apply_rule(base, rule) == pw else None
+
+    cluster_ids = sorted(set(labels) - {-1})
     rules: List[str] = []
-    for cid in sorted(cluster_ids):
-        idx = [i for i, l in enumerate(labels) if l == cid]
-        # Use "c" (capitalise) as a representative rule for the cluster.
-        # In a full implementation, more sophisticated rule inference would go here.
-        rules.append("c")
+    for cid in cluster_ids:
+        members = [words[i] for i, l in enumerate(labels) if l == cid]
+        cluster_rules = Counter()
+        for pw in members:
+            r = _derive_rule(pw)
+            if r:
+                cluster_rules[r] += 1
+        if cluster_rules:
+            # Representative = most frequent valid rule in the cluster.
+            rules.append(cluster_rules.most_common(1)[0][0])
         if len(rules) >= n_rules:
             break
 
-    # Deduplicate.
+    # Deduplicate while preserving order.
     rules = list(dict.fromkeys(rules))
+    if not rules:
+        logger.warning("%s baseline produced no valid rules.", variant)
+        return False
 
     out_rule.parent.mkdir(parents=True, exist_ok=True)
     with open(out_rule, "w", encoding="utf-8") as f:

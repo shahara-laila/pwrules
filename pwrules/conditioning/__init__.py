@@ -35,7 +35,6 @@ from pathlib import Path
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
 from pwrules.config import load_protocol, set_seed
-from pwrules.ruleextract import _format_instruction
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +142,10 @@ def load_real_attributes(csv_path: str | Path) -> List[Dict]:
                 "password":   row.get("password", ""),
                 "user_id":    row.get("user_id", ""),
                 "name":       row.get("name", ""),
-                "birth_year": row.get("birth_year", ""),
+                # Normalise birth_year to int (matching synthetic mode) when numeric.
+                "birth_year": (int(row["birth_year"])
+                               if str(row.get("birth_year", "")).strip().isdigit()
+                               else row.get("birth_year", "")),
                 "interest":   row.get("interest", ""),
                 "synthetic":  False,
             })
@@ -289,7 +291,9 @@ def build_targeted_dataset(
             attrs = pw_to_attrs.get(t["password"], {})
             augmented.append({
                 **t,
-                "user_id": attrs.get("user_id", f"anon_{len(augmented)}"),
+                # An empty CSV user_id must NOT collapse many real people into one
+                # "" user (which would break the per-user split); treat it as anon.
+                "user_id": attrs.get("user_id") or f"anon_{len(augmented)}",
                 "name":       attrs.get("name", ""),
                 "birth_year": attrs.get("birth_year", ""),
                 "interest":   attrs.get("interest", ""),

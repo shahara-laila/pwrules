@@ -32,7 +32,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from pwrules.config import load_protocol
+from pwrules.config import load_config, load_protocol
 
 logger = logging.getLogger(__name__)
 
@@ -111,9 +111,11 @@ def hit_at_k(
 ) -> Dict[int, float]:
     """Compute Hit@k for each k.
 
-    Hit@k = |candidates[:k] ∩ test_set| / |test_set|
+    Hit@k = |set(candidates[:k]) ∩ test_set| / |test_set|
 
-    *candidates* must already be deduplicated and in generation order.
+    *candidates* are expected to be in generation order; this function tracks the
+    set of matched test passwords so duplicate candidates never double-count (it
+    is correct even if *candidates* contains duplicates).
     """
     if not test_set:
         return {k: 0.0 for k in k_values}
@@ -121,7 +123,7 @@ def hit_at_k(
     n = len(test_set)
     sorted_ks = sorted(k_values)
     results: Dict[int, float] = {}
-    hits = 0
+    matched: Set[str] = set()
     prev_k = 0
     cand_iter = iter(candidates)
 
@@ -129,11 +131,11 @@ def hit_at_k(
         for _ in range(k - prev_k):
             try:
                 c = next(cand_iter)
-                if c in test_set:
-                    hits += 1
             except StopIteration:
                 break
-        results[k] = hits / n
+            if c in test_set:
+                matched.add(c)
+        results[k] = len(matched) / n
         prev_k = k
 
     return results
@@ -416,7 +418,7 @@ def run_eval(
     results_csv = out_dir / "results.csv"
     targeted_csv = out_dir / "targeted_results.csv"
 
-    proto = load_protocol(config_path)
+    proto = load_config(config_path) if config_path else load_protocol()
     k_values: List[int] = [
         int(k) for k in proto.get(
             "guess_budget", [10, 100, 1000, 10000, 100000, 1000000, 10000000]
@@ -436,7 +438,7 @@ def run_eval(
             logger.warning("Rule file not found: %s — skipping %s.", rule_path, name)
 
     _eval("LLM-untargeted", llm_untargeted_rule)
-    _eval("LLM-targeted-agg", llm_targeted_rule)
+    _eval("LLM-targeted", llm_targeted_rule)
     _eval("LLM-filtered", llm_filtered_rule)
     _eval("best64", best64_rule)
     _eval("RuleForge", ruleforge_rule)
@@ -462,6 +464,9 @@ def run_eval(
             targeted_rules_dir, target_users_path, wordlist_path,
             k_values, hashcat_bin, seed, dataset_name,
         )
+        # Persist the targeted aggregate to results.csv (it is computed after the
+        # first append_results above, so it needs its own write or it is lost).
+        append_results(agg, results_csv)
         all_rows.extend(agg)
         if per_user:
             fields = ["user_id", "k", "hit", "dataset", "seed"]

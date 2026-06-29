@@ -103,7 +103,7 @@ def _to_latex(
     col_spec = "l" + "r" * len(col_labels)
 
     def _esc(s: str) -> str:
-        return s.replace("_", r"\_").replace("&", r"\&").replace("%", r"\%")
+        return str(s).replace("_", r"\_").replace("&", r"\&").replace("%", r"\%")
 
     lines = [
         r"\begin{table}[htbp]",
@@ -112,13 +112,13 @@ def _to_latex(
         f"  \\label{{{label}}}",
         f"  \\begin{{tabular}}{{{col_spec}}}",
         r"    \toprule",
-        "    Method & " + " & ".join(col_labels) + r" \\",
+        "    Method & " + " & ".join(_esc(c) for c in col_labels) + r" \\",
         r"    \midrule",
     ]
     for label_row, row_cells in zip(row_labels, cells):
         lines.append(
             f"    {_esc(label_row)} & "
-            + " & ".join(row_cells)
+            + " & ".join(_esc(c) for c in row_cells)
             + r" \\"
         )
     lines += [
@@ -136,6 +136,7 @@ def _write_csv_table(
     path: Path,
     row_header: str = "Method",
 ) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow([row_header] + col_labels)
@@ -251,6 +252,7 @@ def make_filter_funnel_table(
         _missing(str(funnel_csv), missing)
         return
 
+    out_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy(funnel_csv, out_dir / "table_filter_funnel.csv")
 
     # Build LaTeX from funnel CSV.
@@ -288,8 +290,6 @@ def make_ablation_table(
         _missing(str(ablations_csv), missing)
         return
 
-    shutil.copy(ablations_csv, out_dir / "table_ablations.csv")
-
     rows: List[Dict] = []
     with open(ablations_csv, encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
@@ -297,7 +297,9 @@ def make_ablation_table(
     if not rows:
         return
 
-    col_labels = ["Method A", "Method B", "Dataset", "k", "Mean A", "Std A", "Mean B", "Std B", "Δ"]
+    # "Delta" (plain text) renders cleanly in both CSV and LaTeX; a literal
+    # Unicode Δ breaks pdflatex without fontspec.
+    col_labels = ["Method A", "Method B", "Dataset", "k", "Mean A", "Std A", "Mean B", "Std B", "Delta"]
     row_labels = [r.get("label", r.get("axis", "")) for r in rows]
     cells = [
         [
@@ -345,6 +347,7 @@ def make_guessing_curve(
         _missing(str(results_csv), missing)
         return
 
+    out_dir.mkdir(parents=True, exist_ok=True)
     rows = load_results_csv(results_csv)
     save_guessing_curve(rows, out_dir / "guessing_curve.png")
 
@@ -426,6 +429,28 @@ def export_paper_artifacts(
     else:
         _missing("filter_funnel.csv (no --filter-dir provided)", missing)
 
+    # Paper-ready research figures (best-effort: each is skipped if its source
+    # artifact is absent). Inputs beyond results/ablations are auto-discovered.
+    figures_made: List[str] = []
+    try:
+        from pwrules import paths
+        from pwrules.eval import figures
+
+        gen_stats = paths.find_file("generation_stats.json", required=False)
+        memo = paths.find_file("memorisation_report.json", required=False)
+        rule_file = (paths.filtered_untargeted(required=False)
+                     or paths.generated_untargeted(required=False))
+        figures_made = figures.generate_all_figures(
+            out_dir=out_dir / "figures",
+            results_csv=results_csv if results_csv.exists() else None,
+            ablations_csv=ablations_csv if ablations_csv.exists() else None,
+            generation_stats_json=gen_stats,
+            memorisation_json=memo,
+            rule_file=rule_file,
+        )
+    except Exception as exc:  # pragma: no cover - figures are non-critical
+        logger.warning("Figure generation skipped: %s", exc)
+
     write_missing_file(missing, out_dir)
 
     logger.info("Paper artifacts → %s", out_dir)
@@ -433,4 +458,5 @@ def export_paper_artifacts(
         "out_dir":  str(out_dir),
         "missing":  sorted(missing),
         "n_missing": len(missing),
+        "figures":  figures_made,
     }

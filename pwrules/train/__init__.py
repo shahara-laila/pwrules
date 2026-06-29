@@ -33,6 +33,52 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Chat-template helpers (model-agnostic)
+# ---------------------------------------------------------------------------
+
+def apply_chat(tokenizer, messages, add_generation_prompt: bool) -> str:
+    """Render *messages* with the model's chat template.
+
+    Passes ``enable_thinking=False`` when the template supports it (Qwen3 and
+    similar reasoning models emit a <think> block by default, which would fill
+    the short generation budget with prose instead of a rule). Falls back
+    cleanly for templates that don't accept the kwarg, so it stays model-agnostic.
+    """
+    try:
+        return tokenizer.apply_chat_template(
+            messages, tokenize=False,
+            add_generation_prompt=add_generation_prompt,
+            enable_thinking=False,
+        )
+    except TypeError:
+        return tokenizer.apply_chat_template(
+            messages, tokenize=False,
+            add_generation_prompt=add_generation_prompt,
+        )
+
+
+def _chat_part_markers(tokenizer):
+    """Derive (instruction_part, response_part) header strings from the template.
+
+    Model-agnostic: renders a probe turn and extracts the boilerplate that
+    precedes the user content and the assistant content respectively, so
+    response-only loss masking works without hard-coding any model's tokens.
+    Returns ``(None, None)`` if the markers cannot be determined.
+    """
+    probe = "PWR_PROBE"
+    try:
+        user_only = apply_chat(tokenizer, [{"role": "user", "content": probe}], False)
+        with_gen = apply_chat(tokenizer, [{"role": "user", "content": probe}], True)
+        instruction_part = user_only.split(probe)[0]
+        response_part = with_gen[len(user_only):]
+        if instruction_part and response_part:
+            return instruction_part, response_part
+    except Exception:  # pragma: no cover - template variability
+        pass
+    return None, None
+
+
+# ---------------------------------------------------------------------------
 # Model loading (GPU only)
 # ---------------------------------------------------------------------------
 
@@ -127,7 +173,22 @@ def load_instruction_dataset(
 
     val_file = data_dir / "instructions_val.jsonl"
     if not val_file.exists():
-        raise FileNotFoundError(f"Validation file not found: {val_file}")
+        # The targeted dataset dir (Phase 4) has no val split; fall back to the
+        # Phase-3 instruction val file discovered elsewhere under the inputs.
+        try:
+            from pwrules import paths
+            discovered = paths.val_txt  # noqa: F401  (ensure module import works)
+            alt = paths.find_file("instructions_val.jsonl", required=False)
+        except Exception:
+            alt = None
+        if alt is not None and Path(alt) != val_file:
+            logger.info("Validation file not in %s; using discovered %s", data_dir, alt)
+            val_file = Path(alt)
+        else:
+            raise FileNotFoundError(
+                f"Validation file not found: {val_file}. Attach the Phase-3 "
+                "rules dataset (contains instructions_val.jsonl)."
+            )
 
     train_records = _load(train_file)
     val_records = _load(val_file)
@@ -138,10 +199,7 @@ def load_instruction_dataset(
             {"role": "user",      "content": record["input"]},
             {"role": "assistant", "content": record["output"]},
         ]
-        text = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=False
-        )
-        return {"text": text}
+        return {"text": apply_chat(tokenizer, messages, add_generation_prompt=False)}
 
     train_ds = Dataset.from_list([_fmt(r) for r in train_records])
     val_ds   = Dataset.from_list([_fmt(r) for r in val_records])
@@ -185,7 +243,8 @@ def save_training_curves(log_history: List[Dict], out_dir: Path) -> None:
     ax.set_xlabel("Step")
     ax.set_ylabel("Loss")
     ax.set_title("Training curves")
-    ax.legend()
+    if train_steps or val_steps:
+        ax.legend()
     plt.tight_layout()
     fig.savefig(out_dir / "training_curves.png", dpi=120)
     plt.close(fig)
@@ -220,9 +279,11 @@ def check_memorisation(
     temperature = float(gen_cfg.get("temperature", 0.8))
     top_p = float(gen_cfg.get("top_p", 0.95))
 
-    probe_words = ["password", "dragon", "hello", "sunshine", "monkey",
-                   "shadow", "master", "letmein", "love", "football"] * (n_samples // 10 + 1)
-    probe_words = probe_words[:n_samples]
+    # Use a diverse probe set (the generation module's default list) rather than
+    # 10 repeated words, so the novelty estimate is representative.
+    from pwrules.generate import _DEFAULT_PROBE_WORDS, _sanitize_rule
+    base_words = _DEFAULT_PROBE_WORDS
+    probe_words = [base_words[i % len(base_words)] for i in range(n_samples)]
 
     generated_rules: List[str] = []
     for word in probe_words:
@@ -230,9 +291,7 @@ def check_memorisation(
             f"Given the base word '{word}', generate a Hashcat password mangling rule "
             "that transforms it into a realistic password candidate."
         )}]
-        prompt = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
+        prompt = apply_chat(tokenizer, messages, add_generation_prompt=True)
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
         import torch  # type: ignore
         with torch.no_grad():
@@ -247,8 +306,10 @@ def check_memorisation(
         generated = tokenizer.decode(
             output_ids[0][inputs["input_ids"].shape[1]:],
             skip_special_tokens=True,
-        ).strip()
-        generated_rules.append(generated)
+        )
+        # Sanitize to a single rule line so malformed/multi-line output isn't
+        # miscounted as a "novel" rule (which would inflate the generalisation score).
+        generated_rules.append(_sanitize_rule(generated))
 
     novel = [r for r in generated_rules if r not in train_rules]
     novel_fraction = len(novel) / len(generated_rules) if generated_rules else 0.0
@@ -283,6 +344,7 @@ def train(
     output_dir: str | Path,
     config_path: Optional[str | Path] = None,
     use_targeted: bool = False,
+    resume_from_checkpoint: Optional[str | Path] = None,
 ) -> Path:
     """Full Phase 5 training pipeline.
 
@@ -341,7 +403,8 @@ def train(
         ))
 
     ckpt_dir = output_dir / "checkpoints"
-    resume = train_cfg.get("resume_from_checkpoint")
+    # CLI --resume (passed through) overrides the train.yaml setting.
+    resume = resume_from_checkpoint or train_cfg.get("resume_from_checkpoint")
 
     training_args = SFTConfig(
         output_dir=str(ckpt_dir),
@@ -378,6 +441,27 @@ def train(
         args=training_args,
         callbacks=callbacks,
     )
+
+    # Response-only loss masking: compute the SFT loss on the assistant's rule
+    # ONLY, not the instruction boilerplate. This focuses model capacity on
+    # generating rules and is the single biggest quality lever for this task.
+    # Markers are derived from the tokenizer so it remains model-agnostic; if
+    # they can't be determined we fall back to full-sequence loss with a warning.
+    if cfg.get("training", {}).get("response_only_loss", True):
+        try:
+            from unsloth.chat_templates import train_on_responses_only  # type: ignore
+            instr_part, resp_part = _chat_part_markers(tokenizer)
+            if resp_part:
+                trainer = train_on_responses_only(
+                    trainer,
+                    instruction_part=instr_part,
+                    response_part=resp_part,
+                )
+                logger.info("Response-only loss masking enabled (response_part=%r).", resp_part)
+            else:
+                logger.warning("Could not derive chat markers; using full-sequence loss.")
+        except Exception as exc:  # pragma: no cover - optional / version-dependent
+            logger.warning("train_on_responses_only unavailable (%s); full-sequence loss.", exc)
 
     # -----------------------------------------------------------------------
     # Train.

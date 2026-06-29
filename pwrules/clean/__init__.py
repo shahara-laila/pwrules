@@ -65,10 +65,9 @@ def clean_password(raw: bytes | str) -> Optional[str]:
     Returns ``None`` if the line should be discarded (empty after cleaning).
     """
     if isinstance(raw, bytes):
-        try:
-            line = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            line = raw.decode("latin-1")  # best-effort repair
+        # Replace only the offending bytes instead of re-decoding the whole line
+        # as latin-1 (which would mangle every other multibyte UTF-8 char).
+        line = raw.decode("utf-8", errors="replace")
     else:
         line = raw
 
@@ -193,10 +192,20 @@ def save_stats(stats: Dict[str, object], out_dir: Path) -> None:
     axes[0].set_title(f"Length distribution  (N={stats['total']:,})")
     axes[0].set_yscale("log")
 
+    # Char-class composition with a FIXED class→colour mapping (so colours are
+    # stable across runs regardless of which class appears first in the corpus).
     cc = stats["char_class_counts"]
-    axes[1].bar(cc.keys(), cc.values(), color=["#4c72b0", "#c44e52", "#55a868", "#8172b2"])
+    cc_order = ["lower", "upper", "digit", "symbol"]
+    cc_colors = {"lower": "#4c72b0", "upper": "#c44e52",
+                 "digit": "#55a868", "symbol": "#8172b2"}
+    cc_vals = [cc.get(cls, 0) for cls in cc_order]
+    bars = axes[1].bar(cc_order, cc_vals, color=[cc_colors[c] for c in cc_order])
     axes[1].set_title("Character-class composition")
     axes[1].set_ylabel("Total characters")
+    total_chars = sum(cc_vals) or 1
+    for rect, val in zip(bars, cc_vals):
+        axes[1].text(rect.get_x() + rect.get_width() / 2, val,
+                     f"{val / total_chars:.0%}", ha="center", va="bottom", fontsize=9)
 
     plt.tight_layout()
     fig.savefig(out_dir / "stats.png", dpi=120)
@@ -279,10 +288,14 @@ def split_corpus(
     cksum_path.write_text(checksum + "\n", encoding="utf-8")
     logger.info("Test split frozen: %s (SHA-256 %s…)", cksum_path, checksum[:16])
 
-    # Manifest JSON.
+    # Manifest JSON. Record the EFFECTIVE split mode (what actually happened),
+    # not just what the protocol requested — a by_user request silently falls
+    # back to a row-level split when no user map is available (e.g. RockYou).
+    effective_by_user = bool(by_user and user_field_map is not None)
     manifest = {
         "seed": seed,
-        "by_user": by_user,
+        "by_user_requested": by_user,
+        "by_user": effective_by_user,
         "sizes": {k: len(v) for k, v in splits.items()},
         "test_sha256": checksum,
     }
@@ -448,8 +461,14 @@ def verify_test_checksum(out_dir: str | Path) -> bool:
     out_dir = Path(out_dir)
     test_path = out_dir / "test.txt"
     cksum_path = out_dir / "test_checksum.txt"
-    with open(test_path, encoding="utf-8") as f:
-        passwords = [line.rstrip("\n") for line in f if line.strip()]
+    # Read back with the SAME semantics used when writing (split on "\n",
+    # drop only the single trailing newline). Filtering with ``line.strip()``
+    # here would silently drop whitespace-only passwords that survived cleaning
+    # and were included in the stored checksum, causing a false mismatch.
+    text = test_path.read_text(encoding="utf-8")
+    passwords = text.split("\n")
+    if passwords and passwords[-1] == "":
+        passwords.pop()
     stored = cksum_path.read_text(encoding="utf-8").strip()
     computed = _checksum(passwords)
     match = computed == stored

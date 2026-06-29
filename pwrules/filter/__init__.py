@@ -272,13 +272,18 @@ def rank_by_effectiveness(
             "Hashcat not found — skipping effectiveness ranking; "
             "returning rules in original order."
         )
+        # Still honour top_k so the funnel/output counts are consistent with the
+        # normal path (which truncates to top_k).
+        if top_k is not None:
+            return rules[:top_k], [0] * min(top_k, len(rules))
         return rules, [0] * len(rules)
 
     # Write base wordlist and run hashcat per rule.
     # To keep it tractable, evaluate each rule independently.
     hit_counts: List[int] = []
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as wf:
-        wf.write(open(base_wordlist_path).read())
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as wf, \
+            open(base_wordlist_path, encoding="utf-8") as bw:
+        shutil.copyfileobj(bw, wf)
         wf_path = wf.name
 
     try:
@@ -291,8 +296,10 @@ def rank_by_effectiveness(
                     [hashcat_bin, "--stdout", "-r", rf_path, wf_path, "--quiet"],
                     capture_output=True, text=True, timeout=timeout,
                 )
-                hits = sum(1 for line in res.stdout.splitlines() if line.strip() in val_set)
-                hit_counts.append(hits)
+                # Count DISTINCT validation passwords this rule recovers (not raw
+                # candidate occurrences) so duplicate candidates don't inflate rank.
+                produced = {line.rstrip("\n") for line in res.stdout.splitlines()}
+                hit_counts.append(len(produced & val_set))
             except Exception:
                 hit_counts.append(0)
             finally:
@@ -360,19 +367,31 @@ def save_funnel(funnel_rows: List[Dict], out_dir: Path) -> None:
     unique    = [r["unique"]    for r in funnel_rows]
     effective = [r["effective"] for r in funnel_rows]
 
-    x = range(len(labels))
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.bar(x, generated, label="generated", color="#aec6e8")
-    ax.bar(x, valid,     label="valid",     color="#4c72b0")
-    ax.bar(x, unique,    label="unique",    color="#55a868")
-    ax.bar(x, effective, label="effective", color="#c44e52")
+    # Nested funnel: each stage is a subset of the previous, so overlaying wide→
+    # narrow bars reads as a funnel. Draw widest first and annotate counts.
+    import numpy as np
+    x = np.arange(len(labels))
+    stages = [
+        ("generated", generated, "#aec6e8"),
+        ("valid",     valid,     "#4c72b0"),
+        ("unique",    unique,    "#55a868"),
+        ("effective", effective, "#c44e52"),
+    ]
+    fig, ax = plt.subplots(figsize=(max(8, 2.2 * len(labels)), 5))
+    width = 0.6
+    for name, vals, color in stages:
+        bars = ax.bar(x, vals, width=width, label=name, color=color, zorder=2)
+        for rect, v in zip(bars, vals):
+            ax.text(rect.get_x() + rect.get_width() / 2, v, f"{v:,}",
+                    ha="center", va="bottom", fontsize=8, zorder=3)
     ax.set_xticks(list(x))
     ax.set_xticklabels(labels, rotation=15, ha="right")
     ax.set_ylabel("Rule count")
-    ax.set_title("Filter funnel")
+    ax.set_title("Rule-filtering funnel (generated → valid → unique → effective)")
     ax.legend()
+    ax.grid(True, axis="y", alpha=0.3, zorder=0)
     plt.tight_layout()
-    fig.savefig(out_dir / "filter_funnel.png", dpi=120)
+    fig.savefig(out_dir / "filter_funnel.png", dpi=150)
     plt.close(fig)
     logger.info("Filter funnel saved to %s", out_dir)
 

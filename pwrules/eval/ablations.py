@@ -224,12 +224,20 @@ def compute_significance(
     target_methods: Optional[List[str]] = None,
     k_values: Optional[List[int]] = None,
     n_bootstrap: int = 10_000,
+    min_seeds: int = 2,
 ) -> List[Dict]:
-    """Bootstrap CI + McNemar p-values comparing each method vs *baseline_method*.
+    """Paired-bootstrap significance comparing each method vs *baseline_method*.
 
     *results_rows* must have a ``hit_rate`` field per row (one row per seed).
-    For McNemar we use a surrogate: treat each seed's Hit@k as a Bernoulli
-    sample (hit / no-hit at that seed).
+    Significance is assessed only when at least *min_seeds* seeds are available
+    for BOTH methods — with a single seed a bootstrap CI collapses to a point and
+    would report spurious significance, so such rows are emitted with
+    ``significant_005 = None`` and a note instead.
+
+    A proper McNemar test needs per-password binary hit vectors, which this
+    seed-level harness does not carry through; rather than emit a meaningless
+    surrogate p-value we set ``mcnemar_p = None``. (The ``mcnemar_p`` helper is
+    retained for callers that do have per-password vectors.)
 
     Returns a list of significance dicts.
     """
@@ -255,26 +263,40 @@ def compute_significance(
                 if len(vals_m) == 0:
                     continue
 
-                # Align lengths.
+                # Align lengths (paired across seeds).
                 n = min(len(vals_base), len(vals_m))
                 va = vals_base[:n]
                 vm = vals_m[:n]
+                obs = float(vm.mean() - va.mean())
 
-                lo, hi, obs = bootstrap_ci(vm, va, n_bootstrap=n_bootstrap)
-                # Binary surrogate for McNemar.
-                hits_a = (vm > 0).astype(int)
-                hits_b = (va > 0).astype(int)
-                p_val = mcnemar_p(hits_a, hits_b)
+                if n < min_seeds:
+                    # Not enough seeds to estimate variance — report honestly.
+                    sig_rows.append({
+                        "method":          method,
+                        "baseline":        baseline_method,
+                        "dataset":         dataset,
+                        "k":               k,
+                        "n_seeds":         n,
+                        "observed_delta":  round(obs, 6),
+                        "ci_lo":           None,
+                        "ci_hi":           None,
+                        "mcnemar_p":       None,
+                        "significant_005": None,
+                        "note": f"insufficient seeds (n={n}, need ≥{min_seeds})",
+                    })
+                    continue
 
+                lo, hi, _ = bootstrap_ci(vm, va, n_bootstrap=n_bootstrap)
                 sig_rows.append({
                     "method":          method,
                     "baseline":        baseline_method,
                     "dataset":         dataset,
                     "k":               k,
+                    "n_seeds":         n,
                     "observed_delta":  round(obs, 6),
                     "ci_lo":           round(lo, 6),
                     "ci_hi":           round(hi, 6),
-                    "mcnemar_p":       round(p_val, 6) if not np.isnan(p_val) else None,
+                    "mcnemar_p":       None,  # needs per-password vectors; not available here
                     "significant_005": bool(lo > 0 or hi < 0),
                 })
 
