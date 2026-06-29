@@ -14,10 +14,10 @@ Update after every phase: status, exact output files, and Kaggle Dataset slug.
 | ☑ | 4 | Target-conditioning dataset | `pwrules/conditioning/`, `notebooks/04_conditioning.md`, `tests/test_conditioning.py` |
 | ☑ | 5 | QLoRA fine-tuning | `pwrules/train/`, `notebooks/05_train.md`, `tests/test_train.py` |
 | ☑ | 6 | Rule generation (inference) | `pwrules/generate/`, `notebooks/06_generate.md`, `tests/test_generate.py` |
-| ☐ | 7 | Rule filtering | Filtered rules + filter-funnel counts |
-| ☐ | 8 | **Evaluation + baselines** | Hit@k tables/curves vs best64/RuleForge/MDBSCAN + complementarity |
-| ☐ | 9 | Ablations + statistics | Ablation table + variance/significance |
-| ☐ | 10 | Results export | Paper-ready figures + CSVs |
+| ☑ | 7 | Rule filtering | Filtered rules + filter-funnel counts |
+| ☑ | 8 | **Evaluation + baselines** | Hit@k tables/curves vs best64/RuleForge/MDBSCAN + complementarity |
+| ☑ | 9 | Ablations + statistics | Ablation table + variance/significance |
+| ☑ | 10 | Results export | Paper-ready figures + CSVs |
 
 ---
 
@@ -82,5 +82,43 @@ Update after every phase: status, exact output files, and Kaggle Dataset slug.
 
 ---
 
-## Next: Phase 7 — Rule filtering
-Run `python -m pwrules.filter` after Phase 6 is complete on Kaggle.
+### Phase 7 — Rule filtering ✅
+- `pwrules/filter/__init__.py` → `syntax_check`, `semantic_dedup`, `rank_by_effectiveness`, `filter_rules`
+- `pwrules/filter/__main__.py` → CLI `python -m pwrules.filter --rules ... --out ...`
+- `notebooks/07_filter.md`
+- `tests/test_filter.py` — 20 tests; hashcat probe stage skipped when hashcat absent
+- **Kaggle run:** `!python -m pwrules.filter --rules /kaggle/input/pwrules-generated-rules/rules/llm_untargeted.rule --out /kaggle/working/filtered --hashcat-sample 200`
+- **Save as:** `yourname/pwrules-filtered`
+- **Outputs:** `<stem>_filtered.rule`, `filter_funnel.csv`, `filter_funnel.png`
+
+### Phase 8 — Evaluation + baselines ✅
+- `pwrules/eval/__init__.py` → `generate_candidates`, `hit_at_k`, `evaluate_method`, `evaluate_complementarity`, `evaluate_targeted`, `run_eval`
+- `pwrules/eval/baselines.py` → `get_best64_rule`, `run_ruleforge` (MDBSCAN → DBSCAN → HAC cascade)
+- `pwrules/eval/__main__.py` → CLI `python -m pwrules.eval run ...`
+- `notebooks/08_eval.md`
+- `tests/test_eval.py` — 20 tests on synthetic data; hashcat calls skipped when absent
+- **Kaggle run:** `!python -m pwrules.eval run --wordlist ... --test ... --out /kaggle/working/results --run-ruleforge`
+- **Save as:** `yourname/pwrules-results`
+- **Outputs:** `results.csv` (method, dataset, k, hit_rate, seed), `guessing_curve.png`, `targeted_results.csv`
+
+### Phase 9 — Ablations + statistics ✅
+- `pwrules/eval/ablations.py` → `aggregate_seeds`, `build_ablation_table`, `bootstrap_ci`, `mcnemar_p`, `compute_significance`, `run_ablations`
+- `pwrules/eval/__main__.py` → subcommand `python -m pwrules.eval ablate ...`
+- `notebooks/09_ablations.md`
+- `tests/test_ablations.py` — 15 tests
+- **Kaggle run:** `!python -m pwrules.eval ablate --results-dir ... --out /kaggle/working/ablations --baseline best64 --n-bootstrap 10000`
+- **Save as:** `yourname/pwrules-ablations`
+- **Outputs:** `ablations.csv`, `aggregated_results.csv`, `significance_report.json`
+
+### Phase 10 — Results export ✅
+- `pwrules/eval/reporting.py` → `make_hit_at_k_table`, `make_guessing_curve`, `make_targeted_table`, `make_filter_funnel_table`, `make_ablation_table`, `export_paper_artifacts`
+- `pwrules/eval/__main__.py` → subcommand `python -m pwrules.eval report ...`
+- `notebooks/10_export.md`
+- `tests/test_reporting.py` — 18 tests; MISSING marker verified when source files absent
+- **Kaggle run:** `!python -m pwrules.eval report --results-dir ... --ablations-dir ... --filter-dir ... --out /kaggle/working/paper`
+- **Save as:** `yourname/pwrules-paper`
+- **Outputs:** `table_hit_at_k.{csv,tex}`, `guessing_curve.png`, `table_targeted.{csv,tex}`, `table_filter_funnel.{csv,tex}`, `table_ablations.{csv,tex}`, `MISSING.txt`
+
+---
+
+## All phases complete ✅
