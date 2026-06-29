@@ -1,0 +1,42 @@
+# ============================================================================
+# protocol.yaml  —  FROZEN evaluation protocol.
+#
+# The four decisions below are the experimental contract for the whole project.
+# DO NOT change them once experiments begin; doing so invalidates cross-phase
+# comparisons. (See CLAUDE.md "Non-negotiables".)
+# ============================================================================
+
+# (1) Base wordlist used by every method at attack time. All rulesets are applied
+#     to THIS list via `hashcat -r <rules> <base_wordlist> --stdout`. Read-only,
+#     supplied at runtime from a private Kaggle Dataset.
+base_wordlist_path: /kaggle/input/pwrules-clean/clean/train.txt
+
+# (2) Guess budget schedule. Hit@k is reported at each k. Log-spaced 10 .. 1e7.
+guess_budget:
+  - 10
+  - 100
+  - 1000
+  - 10000
+  - 100000
+  - 1000000
+  - 10000000
+
+# (3) Split protocol. by_user: split by user so no user appears in two splits
+#     (target-conditioning requires held-out users). Falls back to row split if
+#     no user field exists. Ratios sum to 1.0.
+split:
+  train: 0.8
+  val: 0.1
+  test: 0.1
+  by_user: true
+
+# (4) Hit@k definition (exact, frozen).
+hit_at_k_definition: >-
+  Hit@k = |dedup(candidates)[:k] ∩ test_plaintexts| / |test_plaintexts|, where
+  candidates is the order-preserving deduplicated stream from
+  `hashcat -r <ruleset> <base_wordlist> --stdout`, truncated to the first k
+  guesses. test_plaintexts is the frozen test split. Reported per k in
+  guess_budget.
+
+# Global determinism seed — set everywhere downstream.
+seed: 1337

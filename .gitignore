@@ -1,0 +1,62 @@
+# === DATA — never commit leaked corpora or any raw passwords ===
+data/
+**/data/
+*.txt
+*.gz
+*.bz2
+*.zip
+*.7z
+rockyou*
+*corpus*
+*.jsonl
+*.csv
+
+# Allow small synthetic test fixtures explicitly (override the broad rules above).
+!tests/**/*.txt
+!tests/**/*.jsonl
+!tests/**/*.csv
+!configs/**/*.yaml
+
+# === MODEL WEIGHTS / ADAPTERS ===
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+adapter/
+adapters/
+checkpoints/
+*.gguf
+
+# === KAGGLE / RUNTIME OUTPUTS ===
+kaggle_working/
+/kaggle/
+working/
+outputs/
+results/
+runs/
+*.png
+
+# Allow figures intentionally checked into the repo's docs if needed later.
+!docs/**/*.png
+
+# === PYTHON ===
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# === EDITORS / OS ===
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

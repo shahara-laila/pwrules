@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pwrules"
+version = "0.1.0"
+description = "LLM-generated Hashcat password mangling rules, target-conditioned, evaluated by Hit@k."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "pwrules" }]
+
+# Core dependencies needed everywhere (config, data handling, stats, plotting, tests).
+dependencies = [
+    "pyyaml>=6.0",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+    "datasets>=2.14",
+    "pytest>=7.4",
+]
+
+[project.optional-dependencies]
+# Heavy GPU/fine-tuning stack — installed on Kaggle, not required for local tests.
+# Versions intentionally loose-pinned; Kaggle images change frequently. Pin hard
+# only after a known-good Kaggle run.
+train = [
+    "unsloth",
+    "transformers>=4.44",
+    "peft>=0.12",
+    "trl>=0.9",
+    "bitsandbytes>=0.43",
+    "accelerate>=0.33",
+]
+
+[project.scripts]
+# Thin convenience entrypoints; modules are also runnable via `python -m pwrules.<module>`.
+pwrules-clean = "pwrules.clean.__main__:main"
+pwrules-ruleextract = "pwrules.ruleextract.__main__:main"
+pwrules-conditioning = "pwrules.conditioning.__main__:main"
+pwrules-train = "pwrules.train.__main__:main"
+pwrules-generate = "pwrules.generate.__main__:main"
+pwrules-filter = "pwrules.filter.__main__:main"
+pwrules-eval = "pwrules.eval.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pwrules*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
