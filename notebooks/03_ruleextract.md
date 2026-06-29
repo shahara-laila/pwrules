@@ -21,15 +21,18 @@ print("repo ready:", REPO_DIR)
 import sys, subprocess
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-e", "."], check=True)
 subprocess.run(["apt-get", "-qq", "update"], check=False)
-subprocess.run(["apt-get", "-qq", "install", "-y", "hashcat"], check=False)
+subprocess.run(["apt-get", "-qq", "install", "-y", "--no-install-recommends", "hashcat"], check=False)
 print("core + hashcat install OK")
 ```
 
 ### Cell 3 — make package importable + list inputs
 
 ```python
-import sys, os
+import sys, os, subprocess
 REPO_DIR = "/kaggle/working/pwrules"
+if not os.path.isdir(REPO_DIR):  # self-heal: clone if Cell 1 was skipped
+    subprocess.run(["git", "clone",
+                    "https://github.com/shahara-laila/pwrules.git", REPO_DIR], check=True)
 if REPO_DIR not in sys.path:
     sys.path.insert(0, REPO_DIR)
 import pwrules

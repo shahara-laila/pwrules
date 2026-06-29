@@ -23,7 +23,7 @@ subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-e", ".[train]"],
 
 # hashcat is needed by ruleextract/filter/eval; installing everywhere is harmless.
 subprocess.run(["apt-get", "-qq", "update"], check=False)
-subprocess.run(["apt-get", "-qq", "install", "-y", "hashcat"], check=False)
+subprocess.run(["apt-get", "-qq", "install", "-y", "--no-install-recommends", "hashcat"], check=False)
 
 # Make the freshly cloned package importable WITHOUT needing a kernel restart.
 if REPO_DIR not in sys.path:
@@ -42,7 +42,7 @@ print("inputs:", os.listdir("/kaggle/input"))
 import subprocess, tempfile, os
 
 subprocess.run(["apt-get", "-qq", "update"], check=True)
-subprocess.run(["apt-get", "-qq", "install", "-y", "hashcat"], check=True)
+subprocess.run(["apt-get", "-qq", "install", "-y", "--no-install-recommends", "hashcat"], check=True)
 
 # Print device info (CPU backend is all we need for --stdout)
 result = subprocess.run(["hashcat", "-I"], capture_output=True, text=True)

@@ -30,8 +30,11 @@ print("core install OK")
 ### Cell 3 — make package importable + list inputs
 
 ```python
-import sys, os
+import sys, os, subprocess
 REPO_DIR = "/kaggle/working/pwrules"
+if not os.path.isdir(REPO_DIR):  # self-heal: clone if Cell 1 was skipped
+    subprocess.run(["git", "clone",
+                    "https://github.com/shahara-laila/pwrules.git", REPO_DIR], check=True)
 if REPO_DIR not in sys.path:
     sys.path.insert(0, REPO_DIR)
 import pwrules

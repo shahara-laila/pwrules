@@ -431,7 +431,7 @@ Put this at the top of every Kaggle notebook. Replace placeholders.
 %cd pwrules
 !pip install -q -e .
 # 2. Cracking tool (CPU --stdout is all we need)
-!apt-get -qq update && apt-get -qq install -y hashcat
+!apt-get -qq update && apt-get -qq install -y --no-install-recommends hashcat
 !hashcat -I 2>/dev/null | head -5 || echo "hashcat installed (no GPU backend needed for --stdout)"
 # 3. Sanity
 !nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
