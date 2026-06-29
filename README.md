@@ -20,6 +20,7 @@ pip install -e ".[train]"   # + Unsloth/TRL/PEFT/bitsandbytes (GPU, run on Kaggl
 
 ```
 pwrules/{clean,ruleextract,conditioning,train,generate,filter,eval}/  # pipeline modules
+pwrules/paths.py   slug-agnostic path discovery (single override point)
 configs/   protocol.yaml (FROZEN) + train.yaml
 tests/     pytest unit tests
 notebooks/ thin Kaggle notebooks
@@ -28,3 +29,25 @@ PROGRESS.md  phase tracker (source of truth)
 
 Each module is runnable as `python -m pwrules.<module>`. Track progress in
 [PROGRESS.md](PROGRESS.md).
+
+### Paths are auto-discovered
+
+Kaggle mounts datasets under account-specific slugs (e.g.
+`/kaggle/input/datasets/<user>/rockyou/rockyou.txt`), so paths are **not**
+hard-coded. Every CLI finds its inputs by filename via `pwrules/paths.py`,
+searching `/kaggle/working` then `/kaggle/input`. Just run, e.g.:
+
+```bash
+python -m pwrules.clean --out /kaggle/working/clean   # finds rockyou.txt itself
+```
+
+Override any path from one place — environment variables (set once at the top of
+a notebook):
+
+```python
+import os
+os.environ["PWRULES_ROCKYOU"] = "/kaggle/input/datasets/me/rockyou/rockyou.txt"
+os.environ["PWRULES_INPUT"]   = "/kaggle/input"   # change the search root(s)
+```
+
+Call `pwrules.paths.show()` in a notebook to print everything it resolved.

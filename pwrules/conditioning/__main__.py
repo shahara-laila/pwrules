@@ -30,12 +30,12 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
-        "--rules", required=True,
-        help="Path to rules_dataset.jsonl (Phase 3 output).",
+        "--rules", default=None,
+        help="Path to rules_dataset.jsonl (Phase 3). Auto-discovered if omitted.",
     )
     p.add_argument(
-        "--out", required=True,
-        help="Output directory.",
+        "--out", default=None,
+        help="Output directory (default: <working>/targeted).",
     )
     p.add_argument(
         "--mode",
@@ -76,10 +76,16 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     from pwrules.conditioning import build_targeted_dataset
+    from pwrules import paths
+
+    rules_jsonl = args.rules or str(paths.rules_dataset())
+    out_dir = args.out or str(paths.out("targeted"))
+    logging.info("rules : %s", rules_jsonl)
+    logging.info("output: %s", out_dir)
 
     result = build_targeted_dataset(
-        rules_jsonl=args.rules,
-        out_dir=args.out,
+        rules_jsonl=rules_jsonl,
+        out_dir=out_dir,
         mode=args.mode,
         real_csv_path=args.real_csv,
         n_synthetic_users=args.n_users,

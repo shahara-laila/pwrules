@@ -1,9 +1,18 @@
 # notebooks/
 
 Thin Kaggle notebooks only — no business logic (that lives in the `pwrules` package).
-Each notebook starts with the standard starter cell from [PLAYBOOK.md](../PLAYBOOK.md)
-(clone repo → `pip install -e .` → install Hashcat → GPU check), then calls
-`python -m pwrules.<module>`.
+Each notebook starts with a 3-cell starter (clone repo → install → import + sanity),
+then calls `python -m pwrules.<module>`.
 
-Planned:
-- `01_smoke.md` / `01_smoke.ipynb` — Phase 1 environment smoke test.
+**Install only what the phase needs.** The heavy `.[train]` stack (torch/unsloth,
+several GB) is what exhausts a CPU session and silently kills the kernel mid-install.
+So:
+
+| Phase | Install | Accelerator |
+|-------|---------|-------------|
+| 2 clean, 4 condition, 9 ablate, 10 export | `pip install -e .` | None (CPU) |
+| 3 extract, 7 filter, 8 eval | `pip install -e .` + hashcat | None (CPU) |
+| 5 train, 6 generate | `pip install -e ".[train]"` | **GPU** |
+
+Set the Accelerator (right sidebar) to match BEFORE running. Splitting the starter
+into separate cells means a slow/failing step is isolated and shows `[n]` when done.

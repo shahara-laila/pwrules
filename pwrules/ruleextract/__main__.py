@@ -29,8 +29,14 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="python -m pwrules.ruleextract",
         description="Phase 3 — extract validated (base, rule, password) triples.",
     )
-    p.add_argument("--clean", required=True, help="Phase 2 output dir (train/val/test splits).")
-    p.add_argument("--out", required=True, help="Output directory for rule extraction results.")
+    p.add_argument(
+        "--clean", default=None,
+        help="Phase 2 output dir (train/val/test). Auto-discovered if omitted.",
+    )
+    p.add_argument(
+        "--out", default=None,
+        help="Output directory (default: <working>/rules).",
+    )
     p.add_argument("--wordlist", default=None, help="Reference base wordlist path.")
     p.add_argument("--protocol", default=None, help="Path to protocol.yaml.")
     p.add_argument(
@@ -59,10 +65,16 @@ def main(argv: list[str] | None = None) -> None:
 
     from pwrules.ruleextract import extract_rules
     from pwrules.ruleextract.extractor import parity_check
+    from pwrules import paths
+
+    clean_dir = args.clean or str(paths.clean_dir())
+    out_dir = args.out or str(paths.out("rules"))
+    logging.info("clean : %s", clean_dir)
+    logging.info("output: %s", out_dir)
 
     result = extract_rules(
-        clean_dir=args.clean,
-        out_dir=args.out,
+        clean_dir=clean_dir,
+        out_dir=out_dir,
         base_wordlist_path=args.wordlist,
         protocol_path=args.protocol,
     )

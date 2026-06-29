@@ -36,16 +36,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
-        "--data", required=True,
+        "--data", default=None,
         help=(
             "Directory containing instruction JSONL files "
             "(instructions_train.jsonl, instructions_val.jsonl, "
-            "and optionally targeted_dataset.jsonl)."
+            "and optionally targeted_dataset.jsonl). "
+            "Auto-discovered if omitted (targeted dir when --targeted)."
         ),
     )
     p.add_argument(
-        "--out", required=True,
-        help="Output directory (adapter, checkpoints, curves, memorisation report).",
+        "--out", default=None,
+        help="Output directory (default: <working>/adapter).",
     )
     p.add_argument(
         "--config", default=None,
@@ -81,11 +82,22 @@ def main(argv: list[str] | None = None) -> None:
         config_overrides["resume_from_checkpoint"] = args.resume
 
     from pwrules.train import train
+    from pwrules import paths
+
+    if args.data:
+        data_dir = args.data
+    elif args.targeted:
+        data_dir = str(paths.targeted_dir())
+    else:
+        data_dir = str(paths.rules_dir())
+    out_dir = args.out or str(paths.out("adapter"))
+    logging.info("data  : %s", data_dir)
+    logging.info("output: %s", out_dir)
 
     try:
         adapter_dir = train(
-            data_dir=args.data,
-            output_dir=args.out,
+            data_dir=data_dir,
+            output_dir=out_dir,
             config_path=args.config,
             use_targeted=args.targeted,
         )

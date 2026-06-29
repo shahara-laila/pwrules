@@ -19,10 +19,29 @@ def _run_cmd(args):
     from pwrules.config import load_protocol, set_seed
     from pwrules.eval import run_eval
     from pwrules.eval.baselines import get_best64_rule, run_ruleforge
+    from pwrules import paths
 
     proto = load_protocol()
     seed = args.seed if args.seed is not None else proto.get("seed", 1337)
     set_seed(seed)
+
+    # Resolve protocol inputs/outputs (env override -> discovery -> explicit).
+    wordlist = Path(args.wordlist) if args.wordlist else paths.train_txt()
+    test = Path(args.test) if args.test else paths.test_txt()
+    out_dir = Path(args.out) if args.out else paths.out("results")
+
+    # LLM rule sets: prefer explicit, else the filtered untargeted rules.
+    llm_untargeted = Path(args.llm_untargeted) if args.llm_untargeted else \
+        paths.filtered_untargeted(required=False)
+    llm_filtered = Path(args.llm_filtered) if args.llm_filtered else llm_untargeted
+    target_users = Path(args.target_users) if args.target_users else \
+        paths.target_users(required=False)
+    targeted_rules_dir = Path(args.targeted_rules_dir) if args.targeted_rules_dir else \
+        paths.filtered_dir(required=False)
+
+    logging.info("wordlist: %s", wordlist)
+    logging.info("test    : %s", test)
+    logging.info("output  : %s", out_dir)
 
     # Auto-detect best64 if not supplied.
     best64_rule = None
@@ -37,22 +56,22 @@ def _run_cmd(args):
         ruleforge_rule = Path(args.ruleforge)
     elif args.run_ruleforge:
         ruleforge_rule = run_ruleforge(
-            Path(args.wordlist),
-            out_dir=Path(args.out) / "baselines",
+            wordlist,
+            out_dir=out_dir / "baselines",
             variant=args.ruleforge_variant,
         )
 
     result = run_eval(
-        wordlist_path=Path(args.wordlist),
-        test_path=Path(args.test),
-        out_dir=Path(args.out),
-        llm_untargeted_rule=Path(args.llm_untargeted) if args.llm_untargeted else None,
+        wordlist_path=wordlist,
+        test_path=test,
+        out_dir=out_dir,
+        llm_untargeted_rule=llm_untargeted,
         llm_targeted_rule=Path(args.llm_targeted) if args.llm_targeted else None,
-        llm_filtered_rule=Path(args.llm_filtered) if args.llm_filtered else None,
+        llm_filtered_rule=llm_filtered,
         best64_rule=best64_rule,
         ruleforge_rule=ruleforge_rule,
-        targeted_rules_dir=Path(args.targeted_rules_dir) if args.targeted_rules_dir else None,
-        target_users_path=Path(args.target_users) if args.target_users else None,
+        targeted_rules_dir=targeted_rules_dir,
+        target_users_path=target_users,
         hashcat_bin=args.hashcat_bin,
         seed=seed,
         dataset_name=args.dataset_name,
@@ -67,10 +86,16 @@ def _run_cmd(args):
 
 def _ablate_cmd(args):
     from pwrules.eval.ablations import run_ablations
+    from pwrules import paths
+
+    results_dir = Path(args.results_dir) if args.results_dir else paths.results_dir()
+    out_dir = Path(args.out) if args.out else paths.out("ablations")
+    logging.info("results-dir: %s", results_dir)
+    logging.info("output     : %s", out_dir)
 
     result = run_ablations(
-        results_dir=Path(args.results_dir),
-        out_dir=Path(args.out),
+        results_dir=results_dir,
+        out_dir=out_dir,
         baseline_method=args.baseline,
         k_pivot=int(args.k_pivot),
         n_bootstrap=int(args.n_bootstrap),
@@ -85,15 +110,23 @@ def _ablate_cmd(args):
 
 def _report_cmd(args):
     from pwrules.eval.reporting import export_paper_artifacts
+    from pwrules import paths
 
     k_values = [int(k) for k in args.k_values.split(",")] if args.k_values else None
 
+    results_dir = Path(args.results_dir) if args.results_dir else paths.results_dir()
+    out_dir = Path(args.out) if args.out else paths.out("paper")
+    ablations_dir = Path(args.ablations_dir) if args.ablations_dir else \
+        paths.ablations_dir(required=False)
+    filter_dir = Path(args.filter_dir) if args.filter_dir else \
+        paths.filtered_dir(required=False)
+
     result = export_paper_artifacts(
-        results_dir=Path(args.results_dir),
-        out_dir=Path(args.out),
+        results_dir=results_dir,
+        out_dir=out_dir,
         k_values=k_values,
-        ablations_dir=Path(args.ablations_dir) if args.ablations_dir else None,
-        filter_dir=Path(args.filter_dir) if args.filter_dir else None,
+        ablations_dir=ablations_dir,
+        filter_dir=filter_dir,
         dataset=args.dataset,
     )
 
@@ -121,9 +154,9 @@ def _build_parser():
     # run
     # ------------------------------------------------------------------
     r = sub.add_parser("run", help="Phase 8: evaluate rule sets.")
-    r.add_argument("--wordlist", required=True, help="Base wordlist path.")
-    r.add_argument("--test",     required=True, help="Test plaintext path.")
-    r.add_argument("--out",      required=True, help="Output directory.")
+    r.add_argument("--wordlist", default=None, help="Base wordlist (default: discovered train.txt).")
+    r.add_argument("--test",     default=None, help="Test plaintext (default: discovered test.txt).")
+    r.add_argument("--out",      default=None, help="Output directory (default: <working>/results).")
     r.add_argument("--llm-untargeted", default=None)
     r.add_argument("--llm-targeted",   default=None)
     r.add_argument("--llm-filtered",   default=None)
@@ -145,8 +178,8 @@ def _build_parser():
     # ablate
     # ------------------------------------------------------------------
     a = sub.add_parser("ablate", help="Phase 9: ablation + significance.")
-    a.add_argument("--results-dir", required=True)
-    a.add_argument("--out",         required=True)
+    a.add_argument("--results-dir", default=None, help="Dir of result CSVs (default: discovered).")
+    a.add_argument("--out",         default=None, help="Output directory (default: <working>/ablations).")
     a.add_argument("--baseline",    default="best64")
     a.add_argument("--k-pivot",     default=1_000_000)
     a.add_argument("--n-bootstrap", default=10_000)
@@ -156,8 +189,8 @@ def _build_parser():
     # report
     # ------------------------------------------------------------------
     rp = sub.add_parser("report", help="Phase 10: export paper artifacts.")
-    rp.add_argument("--results-dir",   required=True)
-    rp.add_argument("--out",           required=True)
+    rp.add_argument("--results-dir",   default=None, help="Phase 8 results dir (default: discovered).")
+    rp.add_argument("--out",           default=None, help="Output directory (default: <working>/paper).")
     rp.add_argument("--ablations-dir", default=None)
     rp.add_argument("--filter-dir",    default=None)
     rp.add_argument("--dataset",       default=None)

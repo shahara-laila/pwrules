@@ -6,37 +6,52 @@ Each seed is a separate Kaggle run.  Save each run's `results.csv` as
 `results_seed1.csv`, `results_seed2.csv`, `results_seed3.csv` and attach
 them all here.
 
+**Accelerator: None (CPU).** Pure stats — do not install `.[train]` or hashcat here.
+
 Attach datasets: `pwrules-results-seed1`, `pwrules-results-seed2`,
 `pwrules-results-seed3` (Phase 8, different seeds).
 
-```python
-!git clone https://github.com/shahara-laila/pwrules.git
-%cd pwrules
-!pip install -q -e .
-!pip install -q scipy  # for McNemar's test
-import os, shutil
+### Cell 1 — clone repo
 
-# Collect all seed CSVs into a single directory.
-os.makedirs("/kaggle/working/all_results", exist_ok=True)
-for i in [1, 2, 3]:
-    src = f"/kaggle/input/pwrules-results-seed{i}/results.csv"
-    dst = f"/kaggle/working/all_results/results_seed{i}.csv"
-    if os.path.exists(src):
-        shutil.copy(src, dst)
-        print(f"Copied seed {i}")
-    else:
-        print(f"MISSING: seed {i} results")
+```python
+import os, subprocess
+REPO_DIR = "/kaggle/working/pwrules"
+if not os.path.isdir(REPO_DIR):
+    subprocess.run(["git", "clone",
+                    "https://github.com/shahara-laila/pwrules.git", REPO_DIR], check=True)
+os.chdir(REPO_DIR)
+print("repo ready:", REPO_DIR)
+```
+
+### Cell 2 — core install only (fast)
+
+```python
+import sys, subprocess
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-e", "."], check=True)
+print("core install OK")
+```
+
+### Cell 3 — make package importable + list inputs
+
+```python
+import sys, os
+REPO_DIR = "/kaggle/working/pwrules"
+if REPO_DIR not in sys.path:
+    sys.path.insert(0, REPO_DIR)
+import pwrules
+print("pwrules importable at:", pwrules.__file__)
+print("inputs:", os.listdir("/kaggle/input"))
+
+# Preview the paths auto-discovered for this phase (slug-agnostic).
+from pwrules import paths
+paths.show()
 ```
 
 ```python
 # Run ablation analysis.
-!python -m pwrules.eval ablate \
-    --results-dir /kaggle/working/all_results \
-    --out         /kaggle/working/ablations   \
-    --baseline    best64                      \
-    --k-pivot     1000000                     \
-    --n-bootstrap 10000                       \
-    --min-seeds   3
+import subprocess, sys
+subprocess.run([sys.executable, "-m", "pwrules.eval", "ablate", "--results-dir", "/kaggle/working/all_results", "--out", "/kaggle/working/ablations", "--baseline", "best64", "--k-pivot", "1000000", "--n-bootstrap", "10000", "--min-seeds", "3"],
+               cwd="/kaggle/working/pwrules", check=True)
 ```
 
 ```python

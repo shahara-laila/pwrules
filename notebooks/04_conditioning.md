@@ -1,19 +1,47 @@
 # Phase 4 — Target-Conditioning Dataset Notebook
 
+**Accelerator: None (CPU).** Pure Python — do not install `.[train]` or hashcat here.
+
+### Cell 1 — clone repo
+
 ```python
-!git clone https://github.com/shahara-laila/pwrules.git
-%cd pwrules
-!pip install -q -e .
-import os; print("inputs:", os.listdir("/kaggle/input"))
+import os, subprocess
+REPO_DIR = "/kaggle/working/pwrules"
+if not os.path.isdir(REPO_DIR):
+    subprocess.run(["git", "clone",
+                    "https://github.com/shahara-laila/pwrules.git", REPO_DIR], check=True)
+os.chdir(REPO_DIR)
+print("repo ready:", REPO_DIR)
+```
+
+### Cell 2 — core install only (fast)
+
+```python
+import sys, subprocess
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-e", "."], check=True)
+print("core install OK")
+```
+
+### Cell 3 — make package importable + list inputs
+
+```python
+import sys, os
+REPO_DIR = "/kaggle/working/pwrules"
+if REPO_DIR not in sys.path:
+    sys.path.insert(0, REPO_DIR)
+import pwrules
+print("pwrules importable at:", pwrules.__file__)
+print("inputs:", os.listdir("/kaggle/input"))
+
+# Preview the paths auto-discovered for this phase (slug-agnostic).
+from pwrules import paths
+paths.show()
 ```
 
 ```python
-!python -m pwrules.conditioning \
-    --rules /kaggle/input/pwrules-rules/rules_dataset.jsonl \
-    --mode  synthetic \
-    --n-users 500 \
-    --out   /kaggle/working/targeted \
-    --log-level INFO
+import subprocess, sys
+subprocess.run([sys.executable, "-m", "pwrules.conditioning", "--mode", "synthetic", "--n-users", "500", "--out", "/kaggle/working/targeted", "--log-level", "INFO"],
+               cwd="/kaggle/working/pwrules", check=True)
 ```
 
 ```python

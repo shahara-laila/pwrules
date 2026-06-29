@@ -36,16 +36,23 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
-        "--adapter", required=True,
-        help="Path to the saved LoRA adapter directory (Phase 5 output).",
+        "--adapter", default=None,
+        help="LoRA adapter directory (Phase 5). Auto-discovered if omitted.",
     )
     p.add_argument(
-        "--out", required=True,
-        help="Output directory (rules/ subdir with .rule files + stats).",
+        "--out", default=None,
+        help="Output directory (default: <working>/rules).",
     )
     p.add_argument(
         "--target-users", default=None,
-        help="Path to target_users_test.jsonl (Phase 4). Enables targeted mode.",
+        help=(
+            "Path to target_users_test.jsonl (Phase 4); enables targeted mode. "
+            "Auto-discovered if present, unless --no-targeted is given."
+        ),
+    )
+    p.add_argument(
+        "--no-targeted", action="store_true", default=False,
+        help="Skip targeted generation even if target users are discoverable.",
     )
     p.add_argument(
         "--wordlist", default=None,
@@ -76,12 +83,25 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     from pwrules.generate import generate_rules
+    from pwrules import paths
+
+    adapter_dir = args.adapter or str(paths.adapter_dir())
+    out_dir = args.out or str(paths.out("rules"))
+    if args.no_targeted:
+        target_users = None
+    else:
+        target_users = args.target_users or (
+            str(paths.target_users()) if paths.target_users(required=False) else None
+        )
+    logging.info("adapter: %s", adapter_dir)
+    logging.info("output : %s", out_dir)
+    logging.info("targeted users: %s", target_users or "(none — untargeted only)")
 
     try:
         result = generate_rules(
-            adapter_dir=args.adapter,
-            out_dir=args.out,
-            target_users_path=args.target_users,
+            adapter_dir=adapter_dir,
+            out_dir=out_dir,
+            target_users_path=target_users,
             probe_words_path=args.wordlist,
             config_path=args.config,
             budget=args.budget,

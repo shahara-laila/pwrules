@@ -17,12 +17,12 @@ def _parse_args(argv=None):
         description="Phase 7 — 3-stage rule filtering funnel.",
     )
     p.add_argument(
-        "--rules", nargs="+", required=True,
-        help="One or more .rule files to filter.",
+        "--rules", nargs="+", default=None,
+        help="One or more .rule files to filter. Auto-discovered if omitted.",
     )
     p.add_argument(
-        "--out", required=True,
-        help="Output directory.",
+        "--out", default=None,
+        help="Output directory (default: <working>/filtered).",
     )
     p.add_argument(
         "--val", default=None,
@@ -63,18 +63,38 @@ def main(argv=None):
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
+    from pwrules import paths
+
     proto = load_protocol()
     seed = args.seed if args.seed is not None else proto.get("seed", 1337)
     set_seed(seed)
 
-    if args.effectiveness_ranking and (not args.val or not args.wordlist):
-        print(
-            "ERROR: --effectiveness-ranking requires --val and --wordlist.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    # Resolve inputs/outputs (env override -> discovery -> explicit flags).
+    if args.rules:
+        rule_files = [Path(r) for r in args.rules]
+    else:
+        rule_files = [paths.generated_untargeted()]
+    out_dir = Path(args.out) if args.out else paths.out("filtered")
 
-    rule_files = [Path(r) for r in args.rules]
+    # Effectiveness ranking needs a val dictionary + base wordlist; discover them.
+    val_path = Path(args.val) if args.val else None
+    wordlist = Path(args.wordlist) if args.wordlist else None
+    if args.effectiveness_ranking:
+        if val_path is None:
+            val_path = paths.val_txt(required=False)
+        if wordlist is None:
+            wordlist = paths.train_txt(required=False)
+        if val_path is None or wordlist is None:
+            print(
+                "ERROR: --effectiveness-ranking needs a val dictionary and base "
+                "wordlist; none found. Pass --val and --wordlist explicitly.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    logging.info("rules : %s", [str(r) for r in rule_files])
+    logging.info("output: %s", out_dir)
+
     for rf in rule_files:
         if not rf.exists():
             print(f"ERROR: rule file not found: {rf}", file=sys.stderr)
@@ -82,9 +102,9 @@ def main(argv=None):
 
     result = filter_rules(
         rule_files=rule_files,
-        out_dir=Path(args.out),
-        val_path=Path(args.val) if args.val else None,
-        base_wordlist_path=Path(args.wordlist) if args.wordlist else None,
+        out_dir=out_dir,
+        val_path=val_path,
+        base_wordlist_path=wordlist,
         hashcat_bin=args.hashcat_bin,
         hashcat_sample=args.hashcat_sample,
         effectiveness_ranking=args.effectiveness_ranking,

@@ -27,8 +27,14 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="python -m pwrules.clean",
         description="Phase 2 — clean corpus and produce train/val/test splits.",
     )
-    p.add_argument("--input", required=True, help="Raw corpus file path (read-only).")
-    p.add_argument("--out", required=True, help="Output directory.")
+    p.add_argument(
+        "--input", default=None,
+        help="Raw corpus file path (read-only). Auto-discovered (rockyou.txt) if omitted.",
+    )
+    p.add_argument(
+        "--out", default=None,
+        help="Output directory (default: <working>/clean).",
+    )
     p.add_argument(
         "--filter",
         dest="filter_enabled",
@@ -61,10 +67,16 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     from pwrules.clean import clean_corpus
+    from pwrules import paths
+
+    input_path = args.input or str(paths.corpus())
+    out_dir = args.out or str(paths.out("clean"))
+    logging.info("input : %s", input_path)
+    logging.info("output: %s", out_dir)
 
     result = clean_corpus(
-        input_path=args.input,
-        out_dir=args.out,
+        input_path=input_path,
+        out_dir=out_dir,
         protocol_path=args.protocol,
         filter_enabled=args.filter_enabled,
         min_len=args.min_len,

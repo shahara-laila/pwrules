@@ -8,15 +8,30 @@ Attach your private RockYou dataset before running.
 ## Cell 1 — Clone repo and install
 
 ```python
-import subprocess, sys
+# --- Restart-proof starter (safe to re-run; survives kernel/GPU restarts) ---
+import subprocess, sys, os, shutil
 
-GH_USER = "shahara-laila"
-REPO = f"https://github.com/{GH_USER}/pwrules.git"
+REPO_DIR = "/kaggle/working/pwrules"
+if not os.path.isdir(REPO_DIR):
+    subprocess.run(["git", "clone",
+                    "https://github.com/shahara-laila/pwrules.git", REPO_DIR], check=True)
+os.chdir(REPO_DIR)
 
-subprocess.run(["git", "clone", REPO], check=True)
-%cd pwrules
+# Editable install. The RAPIDS / cudf / cuml dependency-conflict warnings that
+# Kaggle prints here are EXPECTED and harmless: pwrules never imports those packages.
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-e", ".[train]"], check=True)
-print("pwrules installed OK")
+
+# hashcat is needed by ruleextract/filter/eval; installing everywhere is harmless.
+subprocess.run(["apt-get", "-qq", "update"], check=False)
+subprocess.run(["apt-get", "-qq", "install", "-y", "hashcat"], check=False)
+
+# Make the freshly cloned package importable WITHOUT needing a kernel restart.
+if REPO_DIR not in sys.path:
+    sys.path.insert(0, REPO_DIR)
+
+import pwrules
+print("pwrules importable at:", pwrules.__file__)
+print("inputs:", os.listdir("/kaggle/input"))
 ```
 
 ---
@@ -58,12 +73,15 @@ os.unlink(rf_path); os.unlink(wf_path)
 ## Cell 3 — GPU sanity + 1-step QLoRA probe
 
 ```python
-import subprocess
-result = subprocess.run(
-    ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
-    capture_output=True, text=True,
-)
-print("GPU:", result.stdout.strip())
+import subprocess, shutil
+if shutil.which("nvidia-smi"):
+    result = subprocess.run(
+        ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
+        capture_output=True, text=True,
+    )
+    print("GPU:", result.stdout.strip())
+else:
+    print("GPU: none attached (Accelerator = None)")
 
 from pwrules.env import check_env
 status = check_env(
