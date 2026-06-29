@@ -4,7 +4,7 @@ Standard starter cell then:
 
 ```python
 # Standard starter (see PLAYBOOK.md Appendix)
-!git clone https://github.com/<YOUR_GH_USER>/pwrules.git
+!git clone https://github.com/shahara-laila/pwrules.git
 %cd pwrules
 !pip install -q -e .
 !apt-get -qq update && apt-get -qq install -y hashcat

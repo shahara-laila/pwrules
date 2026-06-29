@@ -10,7 +10,7 @@ Attach your private RockYou dataset before running.
 ```python
 import subprocess, sys
 
-GH_USER = "YOUR_GH_USER"   # <-- replace
+GH_USER = "shahara-laila"
 REPO = f"https://github.com/{GH_USER}/pwrules.git"
 
 subprocess.run(["git", "clone", REPO], check=True)

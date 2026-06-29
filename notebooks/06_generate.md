@@ -5,7 +5,7 @@
 Attach datasets: `pwrules-adapter` (Phase 5), `pwrules-targeted` (Phase 4), `rockyou` (for probe words).
 
 ```python
-!git clone https://github.com/<YOUR_GH_USER>/pwrules.git
+!git clone https://github.com/shahara-laila/pwrules.git
 %cd pwrules
 !pip install -q -e ".[train]"
 !pip install -q unsloth

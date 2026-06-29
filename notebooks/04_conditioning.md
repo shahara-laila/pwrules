@@ -1,7 +1,7 @@
 # Phase 4 — Target-Conditioning Dataset Notebook
 
 ```python
-!git clone https://github.com/<YOUR_GH_USER>/pwrules.git
+!git clone https://github.com/shahara-laila/pwrules.git
 %cd pwrules
 !pip install -q -e .
 import os; print("inputs:", os.listdir("/kaggle/input"))

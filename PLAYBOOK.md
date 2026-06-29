@@ -427,7 +427,7 @@ Put this at the top of every Kaggle notebook. Replace placeholders.
 
 ```python
 # 1. Get the code
-!git clone https://github.com/<YOUR_GH_USER>/pwrules.git
+!git clone https://github.com/shahara-laila/pwrules.git
 %cd pwrules
 !pip install -q -e .
 # 2. Cracking tool (CPU --stdout is all we need)

@@ -1,7 +1,7 @@
 # Phase 3 — Rule Extraction Notebook
 
 ```python
-!git clone https://github.com/<YOUR_GH_USER>/pwrules.git
+!git clone https://github.com/shahara-laila/pwrules.git
 %cd pwrules
 !pip install -q -e .
 !apt-get -qq update && apt-get -qq install -y hashcat

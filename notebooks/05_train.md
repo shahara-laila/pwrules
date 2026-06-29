@@ -5,7 +5,7 @@
 Attach datasets: `pwrules-rules` (Phase 3) and optionally `pwrules-targeted` (Phase 4).
 
 ```python
-!git clone https://github.com/<YOUR_GH_USER>/pwrules.git
+!git clone https://github.com/shahara-laila/pwrules.git
 %cd pwrules
 !pip install -q -e ".[train]"
 !pip install -q unsloth
