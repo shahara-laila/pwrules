@@ -452,6 +452,9 @@ def train(
         gradient_accumulation_steps=int(train_cfg.get("gradient_accumulation_steps", 4)),
         warmup_ratio=float(train_cfg.get("warmup_ratio", 0.03)),
         num_train_epochs=int(train_cfg.get("epochs", 3)),
+        # max_steps > 0 caps total optimizer steps and OVERRIDES epochs (handy for
+        # a quick smoke run). -1 = use epochs. e.g. set 100 for a 100-step run.
+        max_steps=int(train_cfg.get("max_steps", -1)),
         learning_rate=float(train_cfg.get("learning_rate", 2e-4)),
         fp16=not is_bfloat16_supported(),
         bf16=is_bfloat16_supported(),
