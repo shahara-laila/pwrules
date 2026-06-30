@@ -244,6 +244,60 @@ def semantic_dedup(
 # Stage 3 — Effectiveness ranking (validation set only)
 # ---------------------------------------------------------------------------
 
+def _rule_val_hits(
+    rule: str,
+    base_wordlist_path: Path,
+    val_set: Set[str],
+    hashcat_bin: str,
+    timeout: int,
+) -> int:
+    """Distinct validation passwords recovered by *rule*, computed by streaming.
+
+    Runs ``hashcat --stdout`` for a single rule over the base wordlist and reads
+    its output incrementally, retaining only candidates that hit the validation
+    set. Memory is bounded by ``len(val_set)``, never the wordlist size, so this
+    is safe on very large (rockyou-scale) wordlists. Returns 0 on any error.
+    """
+    import time
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".rule", delete=False) as rf:
+        rf.write(rule + "\n")
+        rf_path = rf.name
+
+    hits: Set[str] = set()
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            [hashcat_bin, "--stdout", "-r", rf_path, str(base_wordlist_path), "--quiet"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1,
+        )
+        start = time.time()
+        for i, line in enumerate(proc.stdout):
+            pw = line.rstrip("\n")
+            if pw in val_set:
+                hits.add(pw)
+            # Cheap wall-clock guard (checked every 100k lines) so a pathological
+            # rule can't run unbounded.
+            if timeout and i % 100_000 == 0 and (time.time() - start) > timeout:
+                proc.kill()
+                break
+        proc.wait(timeout=5)
+    except Exception:
+        if proc is not None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    finally:
+        if proc is not None and proc.stdout is not None:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+        os.unlink(rf_path)
+    return len(hits)
+
+
 def rank_by_effectiveness(
     rules: List[str],
     val_path: Path,
@@ -278,34 +332,15 @@ def rank_by_effectiveness(
             return rules[:top_k], [0] * min(top_k, len(rules))
         return rules, [0] * len(rules)
 
-    # Write base wordlist and run hashcat per rule.
-    # To keep it tractable, evaluate each rule independently.
-    hit_counts: List[int] = []
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as wf, \
-            open(base_wordlist_path, encoding="utf-8") as bw:
-        shutil.copyfileobj(bw, wf)
-        wf_path = wf.name
-
-    try:
-        for rule in rules:
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".rule", delete=False) as rf:
-                rf.write(rule + "\n")
-                rf_path = rf.name
-            try:
-                res = subprocess.run(
-                    [hashcat_bin, "--stdout", "-r", rf_path, wf_path, "--quiet"],
-                    capture_output=True, text=True, timeout=timeout,
-                )
-                # Count DISTINCT validation passwords this rule recovers (not raw
-                # candidate occurrences) so duplicate candidates don't inflate rank.
-                produced = {line.rstrip("\n") for line in res.stdout.splitlines()}
-                hit_counts.append(len(produced & val_set))
-            except Exception:
-                hit_counts.append(0)
-            finally:
-                os.unlink(rf_path)
-    finally:
-        os.unlink(wf_path)
+    # Evaluate each rule independently against the base wordlist via hashcat
+    # --stdout. We STREAM hashcat's output line-by-line instead of buffering the
+    # whole candidate stream: on a rockyou-sized wordlist a single rule emits
+    # millions of lines, and reading them all into memory (capture_output) OOM-
+    # kills the Kaggle kernel. Memory here stays bounded by the validation set.
+    hit_counts: List[int] = [
+        _rule_val_hits(rule, base_wordlist_path, val_set, hashcat_bin, timeout)
+        for rule in rules
+    ]
 
     # Sort by hits descending.
     paired = sorted(zip(hit_counts, rules), reverse=True)
