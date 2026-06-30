@@ -446,6 +446,31 @@ def train(
     # CLI --resume (passed through) overrides the train.yaml setting.
     resume = resume_from_checkpoint or train_cfg.get("resume_from_checkpoint")
 
+    # Validate the resume target. On a first run (or if the pwrules-adapter
+    # dataset isn't attached yet) the checkpoint dir is absent/empty; HF's
+    # trainer would raise "Can't find a valid checkpoint". Fall back to a fresh
+    # run with a warning instead, so the notebook's "Run All" doesn't crash.
+    if resume:
+        from transformers.trainer_utils import get_last_checkpoint  # type: ignore
+        resume_path = Path(resume)
+        last_ckpt = None
+        if resume_path.is_dir():
+            try:
+                last_ckpt = get_last_checkpoint(str(resume_path))
+            except Exception:
+                last_ckpt = None
+            # resume_path may itself BE a checkpoint dir (has trainer_state.json).
+            if last_ckpt is None and (resume_path / "trainer_state.json").exists():
+                last_ckpt = str(resume_path)
+        if last_ckpt is None:
+            logger.warning(
+                "No valid checkpoint at %s — starting a fresh run.", resume
+            )
+            resume = None
+        else:
+            resume = last_ckpt
+            logger.info("Resuming from checkpoint: %s", resume)
+
     training_args = SFTConfig(
         output_dir=str(ckpt_dir),
         per_device_train_batch_size=int(train_cfg.get("per_device_train_batch_size", 16)),
