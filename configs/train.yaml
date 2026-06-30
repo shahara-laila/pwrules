@@ -36,7 +36,7 @@ training:
   # Cap TOTAL optimizer steps. -1 = use `epochs`. Set to 100 for a quick run
   # (overrides epochs). Total steps with epochs = max_train_samples / (batch *
   # grad_accum) * epochs; max_steps bypasses that and stops at exactly N steps.
-  max_steps: -1
+  max_steps: 100
   learning_rate: 2.0e-4
   # --- Kaggle free-tier guardrails -----------------------------------------
   # The Phase-3 instruction set can be rockyou-scale (millions of rows). On the
