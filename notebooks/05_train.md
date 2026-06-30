@@ -1,9 +1,20 @@
 # Phase 5 — QLoRA Fine-Tuning Notebook
 
-**Requires: Accelerator = GPU (T4/P100 or better).** Set it in the right sidebar
+**Requires: Accelerator = GPU T4 x2 (or T4).** Set it in the right sidebar
 BEFORE running, or the install/training will fail. No hashcat needed here.
 
+> ⚠️ **Do NOT use P100.** The training stack (Unsloth/bitsandbytes) needs compute
+> capability ≥ 7.0; the P100 is Pascal (6.0) and fails with
+> `CUDA error: no kernel image is available for execution on the device`.
+> T4 (compute 7.5) is supported and on the free tier.
+
 Attach datasets: `pwrules-rules` (Phase 3) and optionally `pwrules-targeted` (Phase 4).
+
+> 💡 **Free-tier note.** The Phase-3 instruction set can be millions of rows,
+> which OOM-kills the tokenizer and won't finish in 12h. `configs/train.yaml`
+> caps training to a deterministic seeded subsample (`max_train_samples`, default
+> 150k) and limits tokenizer workers (`dataset_num_proc: 2`). Raise/`null` these
+> on a bigger machine.
 
 ### Cell 1 — clone repo
 
@@ -57,16 +68,31 @@ else:
 
 ```python
 # Untargeted training (Phase 3 instruction dataset).
-import subprocess, sys
-subprocess.run([sys.executable, "-m", "pwrules.train", "--out", "/kaggle/working/adapter", "--config", "configs/train.yaml", "--log-level", "INFO"],
-               cwd="/kaggle/working/pwrules", check=True)
+# Unsloth is single-GPU: pin to ONE GPU even on a "T4 x2" session.
+import os, subprocess, sys
+env = {**os.environ, "CUDA_VISIBLE_DEVICES": "0"}
+r = subprocess.run(
+    [sys.executable, "-m", "pwrules.train",
+     "--out", "/kaggle/working/adapter",
+     "--config", "configs/train.yaml", "--log-level", "INFO"],
+    cwd="/kaggle/working/pwrules", env=env,
+)
+if r.returncode != 0:
+    raise SystemExit(f"training failed (exit {r.returncode}) — read the error above")
 ```
 
 ```python
 # OR: Targeted training (Phase 4 instruction dataset).
-# import subprocess, sys
-# subprocess.run([sys.executable, "-m", "pwrules.train", "--out", "/kaggle/working/adapter_targeted", "--targeted", "--log-level", "INFO"],
-#                cwd="/kaggle/working/pwrules", check=True)
+# import os, subprocess, sys
+# env = {**os.environ, "CUDA_VISIBLE_DEVICES": "0"}
+# r = subprocess.run(
+#     [sys.executable, "-m", "pwrules.train",
+#      "--out", "/kaggle/working/adapter_targeted",
+#      "--targeted", "--log-level", "INFO"],
+#     cwd="/kaggle/working/pwrules", env=env,
+# )
+# if r.returncode != 0:
+#     raise SystemExit(f"training failed (exit {r.returncode}) — read the error above")
 ```
 
 ```python
@@ -87,7 +113,14 @@ Save `/kaggle/working/adapter` as `yourname/pwrules-adapter`.
 If the session hits the 12-hour cap before training completes, re-run with:
 
 ```python
-import subprocess, sys
-subprocess.run([sys.executable, "-m", "pwrules.train", "--out", "/kaggle/working/adapter", "--resume", "/kaggle/input/pwrules-adapter/checkpoints"],
-               cwd="/kaggle/working/pwrules", check=True)
+import os, subprocess, sys
+env = {**os.environ, "CUDA_VISIBLE_DEVICES": "0"}
+r = subprocess.run(
+    [sys.executable, "-m", "pwrules.train",
+     "--out", "/kaggle/working/adapter",
+     "--resume", "/kaggle/input/pwrules-adapter/checkpoints"],
+    cwd="/kaggle/working/pwrules", env=env,
+)
+if r.returncode != 0:
+    raise SystemExit(f"training failed (exit {r.returncode}) — read the error above")
 ```

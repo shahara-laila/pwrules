@@ -34,6 +34,18 @@ qlora:
 training:
   epochs: 3
   learning_rate: 2.0e-4
+  # --- Kaggle free-tier guardrails -----------------------------------------
+  # The Phase-3 instruction set can be rockyou-scale (millions of rows). On the
+  # free tier this both OOM-kills the tokenizer's worker processes and cannot
+  # finish in a 12h session. Cap the training/eval rows (deterministic, seeded
+  # subsample) so the run fits. Raise/set to null to use the full dataset on a
+  # bigger machine. This affects only the TRAINING sample, not the frozen
+  # evaluation contract in protocol.yaml.
+  max_train_samples: 150000
+  max_eval_samples: 2000
+  # Tokenizer map() parallelism. 8 workers each hold a slice of the tokenized
+  # corpus -> OOM on ~13-16 GB free-tier RAM. 2 is safe; set 1 to fully serialise.
+  dataset_num_proc: 2
   # Effective batch = 8 x 8 = 64 (was 16 x 4). Smaller per-device batch is safer
   # against OOM on a 16 GB T4 while keeping the same effective batch size.
   per_device_train_batch_size: 8

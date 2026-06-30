@@ -102,6 +102,21 @@ def load_model_and_tokenizer(cfg: Dict[str, Any]):
             "Enable GPU in Kaggle notebook settings."
         )
 
+    # Unsloth / recent bitsandbytes + Triton kernels are compiled for compute
+    # capability >= 7.0 (Volta+). Pascal cards (e.g. Kaggle's P100, CC 6.0) have
+    # no matching kernel binary and fail mid-training with the cryptic
+    # "CUDA error: no kernel image is available for execution on the device".
+    # Fail fast here with an actionable message instead.
+    major, minor = torch.cuda.get_device_capability()
+    if major < 7:
+        gpu_name = torch.cuda.get_device_name(0)
+        raise RuntimeError(
+            f"GPU '{gpu_name}' has compute capability {major}.{minor}, but the "
+            "training stack (Unsloth/bitsandbytes) requires >= 7.0. "
+            "On Kaggle, switch the Accelerator to 'GPU T4 x2' (or T4); the "
+            "P100 (compute 6.0) is not supported."
+        )
+
     model_name: str = cfg["model_name"]
     max_seq_len: int = cfg.get("max_seq_length", 1024)
     qlora: Dict = cfg.get("qlora", {})
@@ -142,6 +157,9 @@ def load_instruction_dataset(
     tokenizer,
     max_seq_len: int,
     use_targeted: bool = False,
+    max_train_samples: Optional[int] = None,
+    max_eval_samples: Optional[int] = None,
+    seed: int = 1337,
 ):
     """Load instruction JSONL files and format with the model's chat template.
 
@@ -192,6 +210,22 @@ def load_instruction_dataset(
 
     train_records = _load(train_file)
     val_records = _load(val_file)
+
+    # Deterministic, seeded subsample so very large (rockyou-scale) instruction
+    # sets fit free-tier RAM / the 12h session. Shuffle first so the subset is
+    # representative, not just the head of the file.
+    import random as _random
+
+    def _cap(records: List[Dict[str, str]], limit: Optional[int], label: str):
+        if limit is not None and len(records) > limit:
+            rng = _random.Random(seed)
+            rng.shuffle(records)
+            logger.info("Subsampling %s: %d -> %d (seed=%d).", label, len(records), limit, seed)
+            return records[:limit]
+        return records
+
+    train_records = _cap(train_records, max_train_samples, "train")
+    val_records = _cap(val_records, max_eval_samples, "val")
     logger.info("Train: %d  Val: %d instruction examples.", len(train_records), len(val_records))
 
     def _fmt(record: Dict[str, str]) -> Dict[str, str]:
@@ -382,7 +416,13 @@ def train(
     # Load dataset.
     # -----------------------------------------------------------------------
     max_seq_len: int = cfg.get("max_seq_length", 1024)
-    datasets = load_instruction_dataset(data_dir, tokenizer, max_seq_len, use_targeted)
+    _train_cfg = cfg.get("training", {})
+    datasets = load_instruction_dataset(
+        data_dir, tokenizer, max_seq_len, use_targeted,
+        max_train_samples=_train_cfg.get("max_train_samples"),
+        max_eval_samples=_train_cfg.get("max_eval_samples"),
+        seed=seed,
+    )
 
     # -----------------------------------------------------------------------
     # Configure SFTTrainer.
@@ -431,6 +471,9 @@ def train(
         dataset_text_field="text",
         max_seq_length=max_seq_len,
         packing=False,
+        # Limit tokenizer map() worker processes: the default (8) OOM-kills a
+        # worker on free-tier RAM with large instruction sets.
+        dataset_num_proc=int(train_cfg.get("dataset_num_proc", 2)),
     )
 
     trainer = SFTTrainer(
